@@ -25,7 +25,7 @@ class ExtractionClient:
     """Client for extracting entities and relationships via Claude API."""
 
     def __init__(
-        self, api_key: str, model: str = "claude-3-5-haiku-20241022"
+        self, api_key: str, model: str = "claude-haiku-4-5-20251001"
     ) -> None:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
@@ -84,8 +84,15 @@ class ExtractionClient:
 
     def _parse_response(self, raw_text: str) -> ExtractionResult:
         """Parse the JSON response into an ExtractionResult."""
+        text = raw_text.strip()
+        # Strip markdown code fences if present (e.g. ```json ... ```)
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1]
+            if text.endswith("```"):
+                text = text.rsplit("```", 1)[0]
+            text = text.strip()
         try:
-            data = json.loads(raw_text)
+            data = json.loads(text)
         except json.JSONDecodeError as e:
             raise ExtractionError(f"Failed to parse API response as JSON: {e}") from e
 

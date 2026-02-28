@@ -40,7 +40,7 @@ class GraphRenderer:
             try:
                 rels = query_runner.execute(
                     f"MATCH (a:Entity)-[r:{rel_type.value}]->(b:Entity) "
-                    f"RETURN a.id, b.id, type(r)"
+                    f"RETURN a.id, b.id"
                 )
                 for rel in rels:
                     net.add_edge(
