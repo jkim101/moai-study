@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from claude_conversation_kg.extractor.processor import BatchProcessor
@@ -10,6 +11,26 @@ from claude_conversation_kg.parser.reader import discover_jsonl_files, read_json
 from claude_conversation_kg.parser.transformer import transform
 
 logger = logging.getLogger(__name__)
+
+# Common path segments to skip when extracting project names
+_PATH_NOISE = {"users", "home", "workspace", "dev", "projects", "src", "code"}
+
+
+def _extract_project_name(file_path: Path) -> str:
+    """Derive a human-readable project name from a JSONL file path.
+
+    Converts encoded directory names like '-Users-jkim101-workspace-moai-study'
+    into a cleaner label like 'moai-study'.
+    """
+    folder = file_path.parent.name  # e.g. '-Users-jkim101-workspace-moai-study'
+    # Split on dashes and filter noise words / single chars
+    parts = [
+        p for p in re.split(r"[-_]", folder)
+        if p and p.lower() not in _PATH_NOISE and len(p) > 1
+    ]
+    # Remove likely username (looks like an alphanumeric handle with digits)
+    parts = [p for p in parts if not re.match(r"^[a-z]+\d+$", p.lower())]
+    return "-".join(parts[-2:]) if len(parts) >= 2 else (parts[-1] if parts else folder)
 
 
 class IngestionPipeline:
@@ -51,10 +72,16 @@ class IngestionPipeline:
                     files_skipped += 1
                     continue
 
+                # Create Session node for this conversation file
+                session_id = jsonl_path.stem  # UUID filename without extension
+                project_name = _extract_project_name(jsonl_path)
+                self._store.upsert_session(session_id, project_name, jsonl_path)
+
                 result = self._processor.process_session(session)
 
                 for entity in result.entities:
                     self._store.upsert_entity(entity)
+                    self._store.link_entity_to_session(entity.id, session_id)
                     entities_stored += 1
 
                 for rel in result.relationships:

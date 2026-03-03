@@ -70,3 +70,29 @@ class GraphStore:
             """,
             parameters={"fp": str(file_path), "mtime": mtime},
         )
+
+    def upsert_session(
+        self, session_id: str, project_name: str, file_path: Path
+    ) -> None:
+        """Insert or update a Session node."""
+        self._conn.execute(
+            """
+            MERGE (s:Session {id: $id})
+            SET s.project_name = $project, s.file_path = $fp
+            """,
+            parameters={
+                "id": session_id,
+                "project": project_name,
+                "fp": str(file_path),
+            },
+        )
+
+    def link_entity_to_session(self, entity_id: str, session_id: str) -> None:
+        """Create a MENTIONED_IN edge from an entity to a session."""
+        self._conn.execute(
+            """
+            MATCH (e:Entity {id: $eid}), (s:Session {id: $sid})
+            CREATE (e)-[:MENTIONED_IN]->(s)
+            """,
+            parameters={"eid": entity_id, "sid": session_id},
+        )

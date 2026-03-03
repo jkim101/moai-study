@@ -29,6 +29,21 @@ CREATE NODE TABLE IF NOT EXISTS ProcessedFile (
 )
 """
 
+SESSION_TABLE_DDL = """
+CREATE NODE TABLE IF NOT EXISTS Session (
+    id STRING,
+    project_name STRING,
+    file_path STRING,
+    PRIMARY KEY (id)
+)
+"""
+
+MENTIONED_IN_DDL = """
+CREATE REL TABLE IF NOT EXISTS MENTIONED_IN (
+    FROM Entity TO Session
+)
+"""
+
 
 def _relationship_ddl(rel_type: str) -> str:
     """Generate DDL for a relationship table."""
@@ -48,6 +63,8 @@ def initialize_schema(conn: kuzu.Connection) -> None:
     """
     conn.execute(ENTITY_TABLE_DDL)
     conn.execute(PROCESSED_FILES_TABLE_DDL)
+    conn.execute(SESSION_TABLE_DDL)
+    conn.execute(MENTIONED_IN_DDL)
 
     for rel_type in RelationshipType:
         conn.execute(_relationship_ddl(rel_type.value))

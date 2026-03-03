@@ -82,19 +82,59 @@ class ExtractionClient:
 
         raise ExtractionError("Extraction failed: unexpected state")
 
+    def _extract_json_blocks(self, text: str) -> list[dict]:
+        """Extract all JSON objects from text.
+
+        Handles markdown code fences and multiple consecutive JSON objects.
+        Returns a list of parsed dicts (may be empty on total failure).
+        """
+        import re
+
+        blocks: list[dict] = []
+
+        # Extract content from all ```json ... ``` or ``` ... ``` fences
+        fenced = re.findall(r"```(?:json)?\s*([\s\S]*?)```", text)
+        if fenced:
+            for block in fenced:
+                try:
+                    blocks.append(json.loads(block.strip()))
+                except json.JSONDecodeError:
+                    pass
+            if blocks:
+                return blocks
+
+        # No fences found — try streaming JSON decoder to handle multiple objects
+        decoder = json.JSONDecoder()
+        pos = 0
+        while pos < len(text):
+            try:
+                obj, pos = decoder.raw_decode(text, pos)
+                if isinstance(obj, dict):
+                    blocks.append(obj)
+            except json.JSONDecodeError:
+                pos += 1
+
+        return blocks
+
     def _parse_response(self, raw_text: str) -> ExtractionResult:
-        """Parse the JSON response into an ExtractionResult."""
-        text = raw_text.strip()
-        # Strip markdown code fences if present (e.g. ```json ... ```)
-        if text.startswith("```"):
-            text = text.split("\n", 1)[-1]
-            if text.endswith("```"):
-                text = text.rsplit("```", 1)[0]
-            text = text.strip()
-        try:
-            data = json.loads(text)
-        except json.JSONDecodeError as e:
-            raise ExtractionError(f"Failed to parse API response as JSON: {e}") from e
+        """Parse the JSON response into an ExtractionResult.
+
+        Handles single JSON objects, multiple JSON blocks, and markdown fences.
+        """
+        blocks = self._extract_json_blocks(raw_text.strip())
+        if not blocks:
+            raise ExtractionError(
+                "No valid JSON found in API response. "
+                f"Raw text (first 200 chars): {raw_text[:200]!r}"
+            )
+
+        # Merge entities and relationships from all blocks
+        merged_entities: list = []
+        merged_relationships: list = []
+        for block in blocks:
+            merged_entities.extend(block.get("entities", []))
+            merged_relationships.extend(block.get("relationships", []))
+        data = {"entities": merged_entities, "relationships": merged_relationships}
 
         entities: list[Entity] = []
         for raw_entity in data.get("entities", []):
