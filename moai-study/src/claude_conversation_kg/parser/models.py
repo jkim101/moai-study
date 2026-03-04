@@ -1,4 +1,5 @@
 """Pydantic models for parsed conversation data."""
+
 from __future__ import annotations
 
 from datetime import datetime

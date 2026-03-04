@@ -1,4 +1,5 @@
 """Tests for Kuzu connection -- RED phase."""
+
 from __future__ import annotations
 
 from pathlib import Path

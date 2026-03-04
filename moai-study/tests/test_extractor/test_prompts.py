@@ -1,4 +1,5 @@
 """Tests for extraction prompts -- RED phase."""
+
 from __future__ import annotations
 
 from claude_conversation_kg.extractor.models import EntityType

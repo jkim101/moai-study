@@ -1,4 +1,5 @@
 """Anthropic API client with retry logic."""
+
 from __future__ import annotations
 
 import json
@@ -24,9 +25,7 @@ logger = logging.getLogger(__name__)
 class ExtractionClient:
     """Client for extracting entities and relationships via Claude API."""
 
-    def __init__(
-        self, api_key: str, model: str = "claude-haiku-4-5-20251001"
-    ) -> None:
+    def __init__(self, api_key: str, model: str = "claude-haiku-4-5-20251001") -> None:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
 

@@ -1,4 +1,5 @@
 """Configuration management via environment variables."""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,4 +1,5 @@
 """Tests for extraction client -- RED phase."""
+
 from __future__ import annotations
 
 import json
@@ -33,29 +34,31 @@ class TestExtractionClient:
     @patch("claude_conversation_kg.extractor.client.anthropic.Anthropic")
     def test_successful_extraction(self, mock_anthropic_cls: MagicMock) -> None:
         """Mock API response produces an ExtractionResult."""
-        api_response = json.dumps({
-            "entities": [
-                {
-                    "name": "FastAPI",
-                    "type": "Technology",
-                    "description": "Web framework",
-                },
-                {
-                    "name": "Python",
-                    "type": "Technology",
-                    "description": "Language",
-                },
-            ],
-            "relationships": [
-                {
-                    "source": "FastAPI",
-                    "target": "Python",
-                    "type": "USES",
-                    "context": "FastAPI is a Python framework",
-                    "confidence": 0.9,
-                }
-            ],
-        })
+        api_response = json.dumps(
+            {
+                "entities": [
+                    {
+                        "name": "FastAPI",
+                        "type": "Technology",
+                        "description": "Web framework",
+                    },
+                    {
+                        "name": "Python",
+                        "type": "Technology",
+                        "description": "Language",
+                    },
+                ],
+                "relationships": [
+                    {
+                        "source": "FastAPI",
+                        "target": "Python",
+                        "type": "USES",
+                        "context": "FastAPI is a Python framework",
+                        "confidence": 0.9,
+                    }
+                ],
+            }
+        )
         mock_client = MagicMock()
         mock_client.messages.create.return_value = _mock_response(api_response)
         mock_anthropic_cls.return_value = mock_client
@@ -78,10 +81,12 @@ class TestExtractionClient:
             body=None,
         )
 
-        api_response = json.dumps({
-            "entities": [{"name": "X", "type": "Technology", "description": ""}],
-            "relationships": [],
-        })
+        api_response = json.dumps(
+            {
+                "entities": [{"name": "X", "type": "Technology", "description": ""}],
+                "relationships": [],
+            }
+        )
 
         mock_client = MagicMock()
         mock_client.messages.create.side_effect = [

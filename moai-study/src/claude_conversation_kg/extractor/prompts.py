@@ -1,4 +1,5 @@
 """Extraction prompt templates."""
+
 from __future__ import annotations
 
 from claude_conversation_kg.extractor.models import (
@@ -42,15 +43,8 @@ def build_user_prompt(messages: list[ConversationMessage]) -> str:
 
     Each message is formatted as 'role: content' on its own line.
     """
-    lines: list[str] = [
-        "Extract entities and relationships from "
-        "this conversation:\n"
-    ]
+    lines: list[str] = ["Extract entities and relationships from this conversation:\n"]
     for msg in messages:
-        content = (
-            msg.content
-            if isinstance(msg.content, str)
-            else str(msg.content)
-        )
+        content = msg.content if isinstance(msg.content, str) else str(msg.content)
         lines.append(f"{msg.role}: {content}")
     return "\n".join(lines)

@@ -1,4 +1,5 @@
 """Pydantic models for extraction results."""
+
 from __future__ import annotations
 
 import re
@@ -74,10 +75,7 @@ class Entity(BaseModel):
         """Normalize name and auto-generate id from canonical name + type."""
         self.name = _normalize_name(self.name)
         if not self.id:
-            self.id = (
-                f"{_canonical_id_part(self.name)}"
-                f"-{_slugify(self.type.value)}"
-            )
+            self.id = f"{_canonical_id_part(self.name)}-{_slugify(self.type.value)}"
         return self
 
 

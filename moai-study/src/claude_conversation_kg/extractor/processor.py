@@ -1,4 +1,5 @@
 """Batch processing orchestration."""
+
 from __future__ import annotations
 
 import hashlib
@@ -20,9 +21,7 @@ class BatchProcessor:
 
     def _session_hash(self, session: ConversationSession) -> str:
         """Compute a hash for a session based on its content."""
-        content = "".join(
-            f"{m.role}:{m.content}" for m in session.messages
-        )
+        content = "".join(f"{m.role}:{m.content}" for m in session.messages)
         return hashlib.sha256(content.encode()).hexdigest()
 
     def process_session(

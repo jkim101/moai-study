@@ -1,4 +1,5 @@
 """Tests for exception hierarchy -- RED phase."""
+
 from __future__ import annotations
 
 from claude_conversation_kg.exceptions import (

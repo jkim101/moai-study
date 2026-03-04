@@ -1,4 +1,5 @@
 """Visual style definitions for graph rendering."""
+
 from __future__ import annotations
 
 from claude_conversation_kg.extractor.models import EntityType
