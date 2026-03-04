@@ -1,4 +1,5 @@
 """Tests for JSONL transformer -- RED phase."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,8 +13,11 @@ class TestTransformer:
     def test_transform_valid_messages(self) -> None:
         """List of raw dicts produces a ConversationSession with messages."""
         raw = [
-            {"type": "message", "role": "user", "content": "Hello"},
-            {"type": "message", "role": "assistant", "content": "Hi there"},
+            {"type": "user", "message": {"role": "user", "content": "Hello"}},
+            {
+                "type": "assistant",
+                "message": {"role": "assistant", "content": "Hi there"},
+            },
         ]
         session = transform(Path("/tmp/test.jsonl"), iter(raw))
         assert len(session.messages) == 2
@@ -24,9 +28,15 @@ class TestTransformer:
     def test_malformed_messages_skipped(self) -> None:
         """Invalid messages are logged and skipped."""
         raw = [
-            {"type": "message", "role": "user", "content": "Valid"},
-            {"type": "message", "role": "bad_role", "content": "Invalid"},
-            {"type": "message", "role": "assistant", "content": "Also valid"},
+            {"type": "user", "message": {"role": "user", "content": "Valid"}},
+            {
+                "type": "assistant",
+                "message": {"role": "bad_role", "content": "Invalid"},
+            },
+            {
+                "type": "assistant",
+                "message": {"role": "assistant", "content": "Also valid"},
+            },
         ]
         session = transform(Path("/tmp/test.jsonl"), iter(raw))
         assert len(session.messages) == 2

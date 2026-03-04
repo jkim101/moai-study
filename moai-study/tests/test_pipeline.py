@@ -1,4 +1,5 @@
 """Tests for ingestion pipeline -- RED phase."""
+
 from __future__ import annotations
 
 import json
@@ -29,12 +30,20 @@ def graph_store(tmp_path: Path) -> GraphStore:
 
 
 def _make_jsonl_file(tmp_path: Path, name: str = "test.jsonl") -> Path:
-    """Create a valid JSONL file."""
+    """Create a valid JSONL file using Claude Code nested format."""
     tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / name
     messages = [
-        {"type": "message", "role": "user", "content": "Hello"},
-        {"type": "message", "role": "assistant", "content": "Hi"},
+        {
+            "type": "user",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "message": {"role": "user", "content": "Hello"},
+        },
+        {
+            "type": "assistant",
+            "timestamp": "2025-01-01T00:01:00Z",
+            "message": {"role": "assistant", "content": "Hi"},
+        },
     ]
     path.write_text("\n".join(json.dumps(m) for m in messages) + "\n")
     return path

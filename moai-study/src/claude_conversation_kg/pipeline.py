@@ -1,12 +1,15 @@
 """Ingestion pipeline orchestrating parse-extract-store workflow."""
+
 from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 
 from claude_conversation_kg.extractor.processor import BatchProcessor
 from claude_conversation_kg.graph.store import GraphStore
+from claude_conversation_kg.parser.models import ConversationSession
 from claude_conversation_kg.parser.reader import discover_jsonl_files, read_jsonl_file
 from claude_conversation_kg.parser.transformer import transform
 
@@ -14,6 +17,12 @@ logger = logging.getLogger(__name__)
 
 # Common path segments to skip when extracting project names
 _PATH_NOISE = {"users", "home", "workspace", "dev", "projects", "src", "code"}
+
+
+def _session_timestamp(session: ConversationSession) -> datetime | None:
+    """Return the latest message timestamp from a session, or None."""
+    timestamps = [m.timestamp for m in session.messages if m.timestamp is not None]
+    return max(timestamps) if timestamps else None
 
 
 def _extract_project_name(file_path: Path) -> str:
@@ -25,7 +34,8 @@ def _extract_project_name(file_path: Path) -> str:
     folder = file_path.parent.name  # e.g. '-Users-jkim101-workspace-moai-study'
     # Split on dashes and filter noise words / single chars
     parts = [
-        p for p in re.split(r"[-_]", folder)
+        p
+        for p in re.split(r"[-_]", folder)
         if p and p.lower() not in _PATH_NOISE and len(p) > 1
     ]
     # Remove likely username (looks like an alphanumeric handle with digits)
@@ -78,9 +88,10 @@ class IngestionPipeline:
                 self._store.upsert_session(session_id, project_name, jsonl_path)
 
                 result = self._processor.process_session(session)
+                ts = _session_timestamp(session)
 
                 for entity in result.entities:
-                    self._store.upsert_entity(entity)
+                    self._store.upsert_entity(entity, session_timestamp=ts)
                     self._store.link_entity_to_session(entity.id, session_id)
                     entities_stored += 1
 

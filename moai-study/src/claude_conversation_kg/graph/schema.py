@@ -1,4 +1,5 @@
 """Graph schema initialization."""
+
 from __future__ import annotations
 
 import logging
@@ -16,9 +17,19 @@ CREATE NODE TABLE IF NOT EXISTS Entity (
     type STRING,
     description STRING,
     confidence DOUBLE,
+    first_seen TIMESTAMP,
+    last_seen TIMESTAMP,
+    mention_count INT64,
     PRIMARY KEY (id)
 )
 """
+
+# Migration: columns added after initial release; safe to run on existing DBs
+_ENTITY_MIGRATION_QUERIES = [
+    "ALTER TABLE Entity ADD COLUMN first_seen TIMESTAMP",
+    "ALTER TABLE Entity ADD COLUMN last_seen TIMESTAMP",
+    "ALTER TABLE Entity ADD COLUMN mention_count INT64 DEFAULT 0",
+]
 
 PROCESSED_FILES_TABLE_DDL = """
 CREATE NODE TABLE IF NOT EXISTS ProcessedFile (
@@ -56,10 +67,25 @@ CREATE REL TABLE IF NOT EXISTS {rel_type} (
 """
 
 
+def _migrate(conn: kuzu.Connection) -> None:
+    """Apply incremental migrations for existing databases.
+
+    Each ALTER TABLE is wrapped in try/except so re-running is idempotent:
+    Kuzu raises RuntimeError if the column already exists.
+    """
+    for query in _ENTITY_MIGRATION_QUERIES:
+        try:
+            conn.execute(query)
+            logger.debug("Migration applied: %s", query.split("COLUMN")[1].strip())
+        except RuntimeError:
+            pass  # Column already exists — migration already applied
+
+
 def initialize_schema(conn: kuzu.Connection) -> None:
     """Create all node and relationship tables with IF NOT EXISTS.
 
     Safe to call multiple times (idempotent).
+    Also applies incremental migrations for existing databases.
     """
     conn.execute(ENTITY_TABLE_DDL)
     conn.execute(PROCESSED_FILES_TABLE_DDL)
@@ -69,4 +95,5 @@ def initialize_schema(conn: kuzu.Connection) -> None:
     for rel_type in RelationshipType:
         conn.execute(_relationship_ddl(rel_type.value))
 
+    _migrate(conn)
     logger.info("Graph schema initialized successfully")

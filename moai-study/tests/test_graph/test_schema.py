@@ -1,4 +1,5 @@
 """Tests for graph schema -- RED phase."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -30,8 +31,13 @@ class TestSchema:
         """All 7 relationship tables exist after init."""
         initialize_schema(db_conn.conn)
         rel_types = [
-            "USES", "DEPENDS_ON", "SOLVES", "RELATES_TO",
-            "DISCUSSED_IN", "REPLACES", "CONFLICTS_WITH",
+            "USES",
+            "DEPENDS_ON",
+            "SOLVES",
+            "RELATES_TO",
+            "DISCUSSED_IN",
+            "REPLACES",
+            "CONFLICTS_WITH",
         ]
         for rel_type in rel_types:
             # Insert two test entities
@@ -58,3 +64,20 @@ class TestSchema:
         """Calling init twice does not raise an error."""
         initialize_schema(db_conn.conn)
         initialize_schema(db_conn.conn)  # Should not raise
+
+    def test_entity_has_timestamp_and_count_columns(
+        self, db_conn: KuzuConnection
+    ) -> None:
+        """Entity table includes first_seen, last_seen, mention_count after init."""
+        initialize_schema(db_conn.conn)
+        # Verify by inserting and retrieving the new columns
+        db_conn.conn.execute(
+            "CREATE (e:Entity {id: 'ts-test', name: 'Test', type: 'Technology', "
+            "description: '', confidence: 1.0, mention_count: 0})"
+        )
+        result = db_conn.conn.execute(
+            "MATCH (e:Entity {id: 'ts-test'}) "
+            "RETURN e.first_seen, e.last_seen, e.mention_count"
+        )
+        row = result.get_next()
+        assert row[2] == 0  # mention_count default

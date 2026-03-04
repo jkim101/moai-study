@@ -1,7 +1,9 @@
 """Entity and relationship storage operations."""
+
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 
 import kuzu
@@ -17,22 +19,76 @@ class GraphStore:
     def __init__(self, conn: kuzu.Connection) -> None:
         self._conn = conn
 
-    def upsert_entity(self, entity: Entity) -> None:
-        """Insert or update an entity by its id."""
-        self._conn.execute(
-            """
-            MERGE (e:Entity {id: $id})
-            SET e.name = $name, e.type = $type,
-                e.description = $description, e.confidence = $confidence
-            """,
-            parameters={
+    def upsert_entity(
+        self, entity: Entity, session_timestamp: datetime | None = None
+    ) -> None:
+        """Insert or update an entity by its id.
+
+        Tracks mention_count (incremented each call), first_seen (set only on
+        first insert), and last_seen (updated to session_timestamp when provided).
+        """
+        # Check whether entity already exists to determine first_seen logic
+        existing = self._conn.execute(
+            "MATCH (e:Entity {id: $id}) RETURN e.first_seen, e.mention_count",
+            parameters={"id": entity.id},
+        )
+
+        if existing.has_next():
+            # Entity exists: preserve first_seen, increment mention_count
+            row = existing.get_next()
+            current_first_seen = row[0]
+            current_count = row[1] or 0
+            new_count = current_count + 1
+            new_first_seen = current_first_seen  # unchanged
+
+            params: dict = {
                 "id": entity.id,
                 "name": entity.name,
                 "type": entity.type.value,
                 "description": entity.description,
                 "confidence": entity.confidence,
-            },
-        )
+                "mention_count": new_count,
+                "first_seen": new_first_seen,
+            }
+            set_last_seen = ""
+            if session_timestamp is not None:
+                params["last_seen"] = session_timestamp
+                set_last_seen = ", e.last_seen = $last_seen"
+
+            self._conn.execute(
+                f"""
+                MATCH (e:Entity {{id: $id}})
+                SET e.name = $name, e.type = $type,
+                    e.description = $description, e.confidence = $confidence,
+                    e.mention_count = $mention_count,
+                    e.first_seen = $first_seen
+                    {set_last_seen}
+                """,
+                parameters=params,
+            )
+        else:
+            # New entity: set first_seen and last_seen from session_timestamp
+            params = {
+                "id": entity.id,
+                "name": entity.name,
+                "type": entity.type.value,
+                "description": entity.description,
+                "confidence": entity.confidence,
+                "mention_count": 1,
+                "first_seen": session_timestamp,
+                "last_seen": session_timestamp,
+            }
+            self._conn.execute(
+                """
+                CREATE (e:Entity {
+                    id: $id, name: $name, type: $type,
+                    description: $description, confidence: $confidence,
+                    mention_count: $mention_count,
+                    first_seen: $first_seen, last_seen: $last_seen
+                })
+                """,
+                parameters=params,
+            )
 
     def upsert_relationship(self, rel: Relationship) -> None:
         """Insert a relationship between two entities."""
