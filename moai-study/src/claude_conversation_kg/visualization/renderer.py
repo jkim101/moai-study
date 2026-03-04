@@ -1,7 +1,9 @@
 """HTML graph visualization renderer."""
+
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 
 from pyvis.network import Network
@@ -16,24 +18,48 @@ logger = logging.getLogger(__name__)
 class GraphRenderer:
     """Generate interactive HTML graph visualizations using pyvis."""
 
+    # Node size range (pixels): min=10 for rarely-mentioned, max=60 for hot topics
+    _MIN_NODE_SIZE = 10
+    _MAX_NODE_SIZE = 60
+
+    @classmethod
+    def _mention_count_to_size(cls, mention_count: int) -> int:
+        """Map mention_count to a node size within [MIN, MAX].
+
+        Uses a logarithmic scale so that moderate counts are visible
+        without letting extremely frequent entities dominate the layout.
+        """
+        if mention_count <= 0:
+            return cls._MIN_NODE_SIZE
+        raw = cls._MIN_NODE_SIZE + int(math.log1p(mention_count) * 8)
+        return min(raw, cls._MAX_NODE_SIZE)
+
     def render(self, query_runner: QueryRunner, output_path: Path) -> None:
         """Render the graph to an HTML file.
 
-        Nodes are color-coded by entity type.
+        Nodes are color-coded by entity type and sized by mention_count.
         Edges are labeled by relationship type.
         """
         net = Network(height="750px", width="100%", directed=True)
 
-        # Fetch all entities
+        # Fetch all entities including mention_count for node sizing
         entities = query_runner.execute(
-            "MATCH (e:Entity) RETURN e.id, e.name, e.type"
+            "MATCH (e:Entity) RETURN e.id, e.name, e.type, e.mention_count"
         )
         for entity in entities:
             eid = entity["e.id"]
             name = entity["e.name"]
             etype = entity["e.type"]
+            mention_count = entity.get("e.mention_count") or 1
             color = ENTITY_COLORS.get(etype, DEFAULT_COLOR)
-            net.add_node(eid, label=name, color=color, title=f"{name} ({etype})")
+            size = self._mention_count_to_size(mention_count)
+            net.add_node(
+                eid,
+                label=name,
+                color=color,
+                size=size,
+                title=f"{name} ({etype}) — mentioned {mention_count}x",
+            )
 
         # Fetch all relationships
         for rel_type in RelationshipType:
