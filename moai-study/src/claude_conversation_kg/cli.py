@@ -1,4 +1,5 @@
 """CLI entry point for the Knowledge Graph tool."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -91,15 +92,43 @@ def query(
 
 @app.command()
 def visualize(
-    output: Path = typer.Argument(
-        Path("graph.html"), help="Output HTML file path"
-    ),
+    output: Path = typer.Argument(Path("graph.html"), help="Output HTML file path"),
 ) -> None:
     """Generate an interactive HTML visualization of the graph."""
     runner = _build_query_runner()
     renderer = GraphRenderer()
     renderer.render(runner, output)
     console.print(f"[green]Visualization saved to:[/green] {output}")
+
+
+@app.command()
+def audit(
+    limit: int = typer.Option(10, "--limit", "-n", help="Number of top entities"),
+) -> None:
+    """Show top entities by mention frequency and graph health insights."""
+    runner = _build_query_runner()
+    data = runner.get_audit(limit=limit)
+
+    if data["total_entities"] == 0:
+        console.print("[yellow]Graph is empty. Run 'kg ingest' first.[/yellow]")
+        return
+
+    table = Table(title=f"Top {limit} Most Mentioned Entities")
+    table.add_column("#", style="dim", width=4)
+    table.add_column("Entity", style="bold")
+    table.add_column("Type", style="cyan")
+    table.add_column("Mentions", justify="right", style="green")
+
+    for i, entity in enumerate(data["top_entities"], 1):
+        table.add_row(
+            str(i),
+            entity["name"],
+            entity["type"],
+            str(entity["mention_count"]),
+        )
+
+    console.print(table)
+    console.print(f"\n[dim]Total entities in graph: {data['total_entities']}[/dim]")
 
 
 @app.command()

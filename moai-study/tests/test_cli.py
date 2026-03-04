@@ -1,4 +1,5 @@
 """Tests for CLI commands -- RED phase."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -25,6 +26,7 @@ class TestCLI:
         assert "query" in result.output
         assert "visualize" in result.output
         assert "stats" in result.output
+        assert "audit" in result.output
 
     @patch("claude_conversation_kg.cli._build_pipeline")
     def test_ingest_command(self, mock_build: MagicMock, tmp_path: Path) -> None:
@@ -85,3 +87,49 @@ class TestCLI:
         result = runner.invoke(app, ["stats"])
         assert result.exit_code == 0
         assert "10" in result.output
+
+    @patch("claude_conversation_kg.cli._build_query_runner")
+    def test_audit_command_shows_top_entities(self, mock_build: MagicMock) -> None:
+        """kg audit displays top entities by mention count."""
+        mock_runner = MagicMock()
+        mock_runner.get_audit.return_value = {
+            "total_entities": 50,
+            "top_entities": [
+                {"name": "FastAPI", "type": "Technology", "mention_count": 42},
+                {"name": "SQLAlchemy", "type": "Library", "mention_count": 18},
+            ],
+        }
+        mock_build.return_value = mock_runner
+
+        result = runner.invoke(app, ["audit"])
+        assert result.exit_code == 0
+        assert "FastAPI" in result.output
+        assert "42" in result.output
+        assert "SQLAlchemy" in result.output
+
+    @patch("claude_conversation_kg.cli._build_query_runner")
+    def test_audit_command_empty_graph(self, mock_build: MagicMock) -> None:
+        """kg audit on empty graph shows a helpful message."""
+        mock_runner = MagicMock()
+        mock_runner.get_audit.return_value = {
+            "total_entities": 0,
+            "top_entities": [],
+        }
+        mock_build.return_value = mock_runner
+
+        result = runner.invoke(app, ["audit"])
+        assert result.exit_code == 0
+        assert "empty" in result.output.lower() or "ingest" in result.output.lower()
+
+    @patch("claude_conversation_kg.cli._build_query_runner")
+    def test_audit_command_respects_limit(self, mock_build: MagicMock) -> None:
+        """kg audit --limit 5 passes limit to get_audit."""
+        mock_runner = MagicMock()
+        mock_runner.get_audit.return_value = {
+            "total_entities": 100,
+            "top_entities": [],
+        }
+        mock_build.return_value = mock_runner
+
+        runner.invoke(app, ["audit", "--limit", "5"])
+        mock_runner.get_audit.assert_called_once_with(limit=5)

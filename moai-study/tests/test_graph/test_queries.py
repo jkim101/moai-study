@@ -1,4 +1,5 @@
 """Tests for graph queries -- RED phase."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -41,8 +42,10 @@ def populated_runner(tmp_path: Path) -> QueryRunner:
     store.upsert_entity(e2)
 
     rel = Relationship(
-        source_id=e1.id, target_id=e2.id,
-        type=RelationshipType.USES, context="FastAPI uses SQLAlchemy",
+        source_id=e1.id,
+        target_id=e2.id,
+        type=RelationshipType.USES,
+        context="FastAPI uses SQLAlchemy",
     )
     store.upsert_relationship(rel)
 
@@ -77,3 +80,48 @@ class TestQueryRunner:
         """Invalid Cypher raises QueryError."""
         with pytest.raises(QueryError):
             query_runner.execute("THIS IS NOT VALID CYPHER")
+
+
+class TestAuditQuery:
+    """Tests for get_audit() -- frequency and time-range insights."""
+
+    @pytest.fixture()
+    def audit_runner(self, tmp_path: Path) -> QueryRunner:
+        """QueryRunner with entities that have varied mention counts."""
+        conn = KuzuConnection(tmp_path / "audit.db")
+        initialize_schema(conn.conn)
+        store = GraphStore(conn.conn)
+
+        # Insert entities with varying mention_counts by calling upsert multiple times
+        hot = Entity(name="FastAPI", type=EntityType.TECHNOLOGY)
+        warm = Entity(name="SQLAlchemy", type=EntityType.LIBRARY)
+        cold = Entity(name="OldLib", type=EntityType.LIBRARY)
+
+        # hot: 5 mentions, warm: 2, cold: 1
+        for _ in range(5):
+            store.upsert_entity(hot)
+        for _ in range(2):
+            store.upsert_entity(warm)
+        store.upsert_entity(cold)
+
+        return QueryRunner(conn.conn)
+
+    def test_get_audit_returns_top_entities(self, audit_runner: QueryRunner) -> None:
+        """get_audit() returns top entities ordered by mention_count desc."""
+        result = audit_runner.get_audit()
+        top = result["top_entities"]
+        assert len(top) >= 1
+        # Most-mentioned entity is first
+        assert top[0]["name"] == "FastAPI"
+        assert top[0]["mention_count"] == 5
+
+    def test_get_audit_respects_limit(self, audit_runner: QueryRunner) -> None:
+        """get_audit(limit=1) returns at most 1 entity."""
+        result = audit_runner.get_audit(limit=1)
+        assert len(result["top_entities"]) == 1
+
+    def test_get_audit_empty_graph(self, query_runner: QueryRunner) -> None:
+        """get_audit() on empty graph returns empty lists without error."""
+        result = query_runner.get_audit()
+        assert result["top_entities"] == []
+        assert result["total_entities"] == 0

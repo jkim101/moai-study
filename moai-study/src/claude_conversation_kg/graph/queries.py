@@ -1,4 +1,5 @@
 """Pre-built Cypher query templates."""
+
 from __future__ import annotations
 
 import logging
@@ -53,6 +54,43 @@ class QueryRunner:
         stats["relationships_by_type"] = rel_by_type
 
         return stats
+
+    def get_audit(self, limit: int = 10) -> dict:
+        """Return knowledge graph audit insights.
+
+        Returns top entities by mention_count, total entity count,
+        and type breakdown sorted by mention frequency.
+        """
+        audit: dict = {}
+
+        # Total entity count
+        result = self._conn.execute("MATCH (n:Entity) RETURN count(n)")
+        audit["total_entities"] = result.get_next()[0]
+
+        if audit["total_entities"] == 0:
+            audit["top_entities"] = []
+            return audit
+
+        # Top N entities by mention_count
+        result = self._conn.execute(
+            "MATCH (e:Entity) "
+            "RETURN e.name, e.type, e.mention_count "
+            "ORDER BY e.mention_count DESC "
+            f"LIMIT {limit}"
+        )
+        top: list[dict] = []
+        while result.has_next():
+            row = result.get_next()
+            top.append(
+                {
+                    "name": row[0],
+                    "type": row[1],
+                    "mention_count": row[2] or 0,
+                }
+            )
+        audit["top_entities"] = top
+
+        return audit
 
     def execute(self, cypher: str) -> list[dict]:
         """Execute an arbitrary Cypher query and return results as dicts."""
