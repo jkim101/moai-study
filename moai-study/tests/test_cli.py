@@ -28,6 +28,8 @@ class TestCLI:
         assert "visualize" in result.output
         assert "stats" in result.output
         assert "audit" in result.output
+        assert "recent" in result.output
+        assert "ask" in result.output
 
     @patch("claude_conversation_kg.cli._build_pipeline")
     def test_ingest_command(self, mock_build: MagicMock, tmp_path: Path) -> None:
@@ -144,3 +146,96 @@ class TestCLI:
 
         runner.invoke(app, ["audit", "--limit", "5"])
         mock_runner.get_audit.assert_called_once_with(limit=5)
+
+    # -- recent command tests --
+
+    @patch("claude_conversation_kg.cli._build_query_runner")
+    def test_recent_command_shows_entities(self, mock_build: MagicMock) -> None:
+        """kg recent 7d displays recently first-seen entities."""
+        mock_runner = MagicMock()
+        mock_runner.get_recent_entities.return_value = [
+            {
+                "name": "Kuzu",
+                "type": "Technology",
+                "mention_count": 5,
+                "first_seen": "2026-03-01 12:00:00",
+            },
+        ]
+        mock_build.return_value = mock_runner
+
+        result = runner.invoke(app, ["recent", "7d"])
+        assert result.exit_code == 0
+        assert "Kuzu" in result.output
+        assert "1 entities found" in result.output
+
+    @patch("claude_conversation_kg.cli._build_query_runner")
+    def test_recent_command_with_type_filter(self, mock_build: MagicMock) -> None:
+        """kg recent 30d --type Technology passes type filter."""
+        mock_runner = MagicMock()
+        mock_runner.get_recent_entities.return_value = []
+        mock_build.return_value = mock_runner
+
+        result = runner.invoke(app, ["recent", "30d", "--type", "Technology"])
+        assert result.exit_code == 0
+        mock_runner.get_recent_entities.assert_called_once_with(
+            days=30, entity_type="Technology"
+        )
+
+    @patch("claude_conversation_kg.cli._build_query_runner")
+    def test_recent_command_no_results(self, mock_build: MagicMock) -> None:
+        """kg recent 1d with no results shows message."""
+        mock_runner = MagicMock()
+        mock_runner.get_recent_entities.return_value = []
+        mock_build.return_value = mock_runner
+
+        result = runner.invoke(app, ["recent", "1d"])
+        assert result.exit_code == 0
+        assert "No entities found" in result.output
+
+    def test_recent_command_invalid_period(self) -> None:
+        """kg recent xyz shows error for invalid period."""
+        result = runner.invoke(app, ["recent", "xyz"])
+        assert result.exit_code != 0
+
+    # -- ask command tests --
+
+    @patch("claude_conversation_kg.cli.NaturalLanguageQuerier")
+    @patch("claude_conversation_kg.cli.initialize_schema")
+    @patch("claude_conversation_kg.cli.KuzuConnection")
+    @patch("claude_conversation_kg.cli._get_settings")
+    def test_ask_command_shows_answer(
+        self,
+        mock_settings: MagicMock,
+        mock_conn_cls: MagicMock,
+        mock_init_schema: MagicMock,
+        mock_querier_cls: MagicMock,
+    ) -> None:
+        """kg ask shows generated Cypher and answer."""
+        mock_settings.return_value = MagicMock(
+            anthropic_api_key="test-key",
+            db_path="/tmp/test.db",
+        )
+        mock_querier = MagicMock()
+        mock_querier.ask.return_value = (
+            "MATCH (e:Entity) RETURN e.name LIMIT 5",
+            "Here are the top entities.",
+        )
+        mock_querier.usage = UsageStats(
+            api_calls=2, input_tokens=500, output_tokens=200
+        )
+        mock_querier_cls.return_value = mock_querier
+
+        result = runner.invoke(app, ["ask", "What entities exist?"])
+        assert result.exit_code == 0
+        assert "MATCH" in result.output
+        assert "Here are the top entities" in result.output
+        assert "API Calls" in result.output
+
+    @patch("claude_conversation_kg.cli._get_settings")
+    def test_ask_command_no_api_key(self, mock_settings: MagicMock) -> None:
+        """kg ask without API key shows error."""
+        mock_settings.return_value = MagicMock(anthropic_api_key="")
+
+        result = runner.invoke(app, ["ask", "What entities exist?"])
+        assert result.exit_code == 1
+        assert "ANTHROPIC_API_KEY" in result.output

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import typer
@@ -15,6 +16,7 @@ from claude_conversation_kg.graph.connection import KuzuConnection
 from claude_conversation_kg.graph.queries import QueryRunner
 from claude_conversation_kg.graph.schema import initialize_schema
 from claude_conversation_kg.graph.store import GraphStore
+from claude_conversation_kg.nlq import NaturalLanguageQuerier
 from claude_conversation_kg.pipeline import IngestionPipeline
 from claude_conversation_kg.visualization.renderer import GraphRenderer
 
@@ -157,6 +159,98 @@ def audit(
 
     console.print(table)
     console.print(f"\n[dim]Total entities in graph: {data['total_entities']}[/dim]")
+
+
+def _parse_period(period: str) -> int:
+    """Parse a period string like '7d' into number of days.
+
+    Raises:
+        typer.BadParameter: If the period format is invalid.
+    """
+    match = re.fullmatch(r"(\d+)d", period)
+    if not match:
+        raise typer.BadParameter(
+            f"Invalid period '{period}'. Use format like '7d', '30d'."
+        )
+    return int(match.group(1))
+
+
+@app.command()
+def recent(
+    period: str = typer.Argument(..., help="Time period, e.g. '7d', '30d'"),
+    entity_type: str | None = typer.Option(
+        None, "--type", "-t", help="Filter by entity type"
+    ),
+) -> None:
+    """Show entities first seen within a recent time period."""
+    days = _parse_period(period)
+    runner = _build_query_runner()
+    results = runner.get_recent_entities(days=days, entity_type=entity_type)
+
+    if not results:
+        console.print("[yellow]No entities found in that period.[/yellow]")
+        return
+
+    table = Table(title=f"Entities first seen in last {days} day(s)")
+    table.add_column("Name", style="bold")
+    table.add_column("Type", style="cyan")
+    table.add_column("Mentions", justify="right", style="green")
+    table.add_column("First Seen", style="dim")
+
+    for row in results:
+        table.add_row(
+            row["name"],
+            row["type"],
+            str(row["mention_count"]),
+            str(row["first_seen"]),
+        )
+
+    console.print(table)
+    console.print(f"\n[dim]{len(results)} entities found.[/dim]")
+
+
+@app.command()
+def ask(
+    question: str = typer.Argument(..., help="Natural language question"),
+) -> None:
+    """Ask a natural language question about the knowledge graph."""
+    settings = _get_settings()
+    if not settings.anthropic_api_key:
+        console.print(
+            "[red]ANTHROPIC_API_KEY is required for the ask command.[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    conn = KuzuConnection(settings.db_path)
+    initialize_schema(conn.conn)
+
+    querier = NaturalLanguageQuerier(
+        api_key=settings.anthropic_api_key, conn=conn.conn
+    )
+
+    try:
+        cypher, answer = querier.ask(question)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(code=1) from e
+
+    console.print(f"[dim]Cypher: {cypher}[/dim]\n")
+    console.print(answer)
+
+    # Display usage stats.
+    usage = querier.usage
+    if usage.api_calls > 0:
+        console.print()
+        usage_table = Table(title="API Usage")
+        usage_table.add_column("Metric", style="bold")
+        usage_table.add_column("Value", justify="right")
+        usage_table.add_row("API Calls", str(usage.api_calls))
+        usage_table.add_row("Input Tokens", f"{usage.input_tokens:,}")
+        usage_table.add_row("Output Tokens", f"{usage.output_tokens:,}")
+        usage_table.add_row(
+            "Estimated Cost", f"${usage.estimated_cost_usd:.4f}"
+        )
+        console.print(usage_table)
 
 
 @app.command()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 
 import kuzu
 
@@ -91,6 +92,57 @@ class QueryRunner:
         audit["top_entities"] = top
 
         return audit
+
+    def get_recent_entities(
+        self, days: int, entity_type: str | None = None
+    ) -> list[dict]:
+        """Return entities first seen within the last N days.
+
+        Args:
+            days: Number of days to look back from now.
+            entity_type: Optional entity type filter (e.g. "Technology").
+
+        Returns:
+            List of dicts with name, type, mention_count, first_seen keys.
+        """
+        since = datetime.now(tz=UTC) - timedelta(days=days)
+        since_str = since.strftime("%Y-%m-%d %H:%M:%S")
+
+        if entity_type:
+            query = (
+                "MATCH (e:Entity) "
+                "WHERE e.first_seen >= timestamp($since) AND e.type = $type "
+                "RETURN e.name, e.type, e.mention_count, e.first_seen "
+                "ORDER BY e.first_seen DESC"
+            )
+            result = self._conn.execute(
+                query,
+                parameters={"since": since_str, "type": entity_type},
+            )
+        else:
+            query = (
+                "MATCH (e:Entity) "
+                "WHERE e.first_seen >= timestamp($since) "
+                "RETURN e.name, e.type, e.mention_count, e.first_seen "
+                "ORDER BY e.first_seen DESC"
+            )
+            result = self._conn.execute(
+                query,
+                parameters={"since": since_str},
+            )
+
+        rows: list[dict] = []
+        while result.has_next():
+            row = result.get_next()
+            rows.append(
+                {
+                    "name": row[0],
+                    "type": row[1],
+                    "mention_count": row[2] or 0,
+                    "first_seen": row[3],
+                }
+            )
+        return rows
 
     def execute(self, cypher: str) -> list[dict]:
         """Execute an arbitrary Cypher query and return results as dicts."""

@@ -80,4 +80,21 @@ class GraphRenderer:
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         net.save_graph(str(output_path))
+        self._patch_fullscreen(output_path)
         logger.info("Graph visualization saved to %s", output_path)
+
+    @staticmethod
+    def _patch_fullscreen(path: Path) -> None:
+        """Patch generated HTML so the graph canvas fills the full viewport."""
+        html = path.read_text()
+        # pyvis hardcodes a fixed pixel height in CSS; replace with viewport units
+        html = html.replace(
+            "height: 750px;", "height: 100vh;"
+        )
+        # Remove default body margin so canvas touches all edges
+        html = html.replace(
+            "<center>",
+            '<style>html, body { margin: 0; padding: 0; overflow: hidden; }</style>\n<center>',
+            1,
+        )
+        path.write_text(html)
