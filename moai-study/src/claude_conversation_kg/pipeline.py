@@ -7,11 +7,15 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from claude_conversation_kg.extractor.models import UsageStats
 from claude_conversation_kg.extractor.processor import BatchProcessor
 from claude_conversation_kg.graph.store import GraphStore
 from claude_conversation_kg.parser.models import ConversationSession
 from claude_conversation_kg.parser.reader import discover_jsonl_files, read_jsonl_file
 from claude_conversation_kg.parser.transformer import transform
+
+# Minimum number of messages required for entity extraction
+MIN_SESSION_MESSAGES = 3
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +61,15 @@ class IngestionPipeline:
     def ingest(self, path: Path) -> dict:
         """Ingest JSONL files from the given path.
 
-        Returns a summary dict with processing statistics.
+        Returns a summary dict with processing statistics and token usage.
         """
         files_processed = 0
         files_skipped = 0
+        sessions_skipped_short = 0
         entities_stored = 0
         relationships_stored = 0
         errors = 0
+        total_usage = UsageStats()
 
         for jsonl_path in discover_jsonl_files(path):
             mtime = jsonl_path.stat().st_mtime
@@ -82,12 +88,23 @@ class IngestionPipeline:
                     files_skipped += 1
                     continue
 
+                if len(session.messages) < MIN_SESSION_MESSAGES:
+                    logger.info(
+                        "Skipping short session (%d messages): %s",
+                        len(session.messages),
+                        jsonl_path,
+                    )
+                    sessions_skipped_short += 1
+                    files_skipped += 1
+                    continue
+
                 # Create Session node for this conversation file
                 session_id = jsonl_path.stem  # UUID filename without extension
                 project_name = _extract_project_name(jsonl_path)
                 self._store.upsert_session(session_id, project_name, jsonl_path)
 
-                result = self._processor.process_session(session)
+                result, usage = self._processor.process_session(session)
+                total_usage = total_usage + usage
                 ts = _session_timestamp(session)
 
                 for entity in result.entities:
@@ -106,10 +123,19 @@ class IngestionPipeline:
                 logger.exception("Error processing %s", jsonl_path)
                 errors += 1
 
+        if sessions_skipped_short:
+            logger.info(
+                "Skipped %d short sessions (<%d messages)",
+                sessions_skipped_short,
+                MIN_SESSION_MESSAGES,
+            )
+
         return {
             "files_processed": files_processed,
             "files_skipped": files_skipped,
+            "sessions_skipped_short": sessions_skipped_short,
             "entities_stored": entities_stored,
             "relationships_stored": relationships_stored,
             "errors": errors,
+            "usage": total_usage,
         }

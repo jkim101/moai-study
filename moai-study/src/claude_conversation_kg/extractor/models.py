@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
@@ -94,3 +95,43 @@ class ExtractionResult(BaseModel):
 
     entities: list[Entity] = Field(default_factory=list)
     relationships: list[Relationship] = Field(default_factory=list)
+
+
+@dataclass
+class UsageStats:
+    """Accumulated token usage statistics from Anthropic API calls."""
+
+    api_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
+
+    def __add__(self, other: UsageStats) -> UsageStats:
+        """Combine two UsageStats instances."""
+        return UsageStats(
+            api_calls=self.api_calls + other.api_calls,
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            cache_creation_input_tokens=(
+                self.cache_creation_input_tokens + other.cache_creation_input_tokens
+            ),
+            cache_read_input_tokens=(
+                self.cache_read_input_tokens + other.cache_read_input_tokens
+            ),
+        )
+
+    @property
+    def estimated_cost_usd(self) -> float:
+        """Estimate cost in USD based on Claude Haiku pricing.
+
+        Pricing (per 1M tokens): input=$0.80, output=$4.00,
+        cache_write=$1.00, cache_read=$0.08
+        """
+        cost = (
+            (self.input_tokens * 0.80 / 1_000_000)
+            + (self.output_tokens * 4.00 / 1_000_000)
+            + (self.cache_creation_input_tokens * 1.00 / 1_000_000)
+            + (self.cache_read_input_tokens * 0.08 / 1_000_000)
+        )
+        return round(cost, 6)

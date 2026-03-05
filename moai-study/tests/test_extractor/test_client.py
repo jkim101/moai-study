@@ -23,8 +23,14 @@ def _mock_response(content: str) -> MagicMock:
     """Create a mock Anthropic API response."""
     block = MagicMock()
     block.text = content
+    usage = MagicMock()
+    usage.input_tokens = 100
+    usage.output_tokens = 50
+    usage.cache_creation_input_tokens = 0
+    usage.cache_read_input_tokens = 0
     response = MagicMock()
     response.content = [block]
+    response.usage = usage
     return response
 
 
@@ -64,11 +70,14 @@ class TestExtractionClient:
         mock_anthropic_cls.return_value = mock_client
 
         client = ExtractionClient(api_key="test-key")
-        result = client.extract(_make_messages())
+        result, usage = client.extract(_make_messages())
 
         assert len(result.entities) == 2
         assert result.entities[0].name == "FastAPI"
         assert len(result.relationships) == 1
+        assert usage.api_calls == 1
+        assert usage.input_tokens == 100
+        assert usage.output_tokens == 50
 
     @patch("claude_conversation_kg.extractor.client.anthropic.Anthropic")
     def test_retry_on_rate_limit(self, mock_anthropic_cls: MagicMock) -> None:
@@ -96,8 +105,9 @@ class TestExtractionClient:
         mock_anthropic_cls.return_value = mock_client
 
         client = ExtractionClient(api_key="test-key")
-        result = client.extract(_make_messages(), max_retries=3)
+        result, usage = client.extract(_make_messages(), max_retries=3)
         assert len(result.entities) == 1
+        assert usage.api_calls == 1
 
     @patch("claude_conversation_kg.extractor.client.anthropic.Anthropic")
     def test_halt_on_auth_error(self, mock_anthropic_cls: MagicMock) -> None:

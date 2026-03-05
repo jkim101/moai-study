@@ -14,6 +14,7 @@ from claude_conversation_kg.extractor.models import (
     Entity,
     EntityType,
     ExtractionResult,
+    UsageStats,
 )
 from claude_conversation_kg.graph.connection import KuzuConnection
 from claude_conversation_kg.graph.schema import initialize_schema
@@ -29,22 +30,25 @@ def graph_store(tmp_path: Path) -> GraphStore:
     return GraphStore(conn.conn)
 
 
-def _make_jsonl_file(tmp_path: Path, name: str = "test.jsonl") -> Path:
-    """Create a valid JSONL file using Claude Code nested format."""
+def _make_jsonl_file(
+    tmp_path: Path, name: str = "test.jsonl", num_messages: int = 4
+) -> Path:
+    """Create a valid JSONL file using Claude Code nested format.
+
+    By default creates 4 messages (above MIN_SESSION_MESSAGES threshold).
+    """
     tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / name
-    messages = [
-        {
-            "type": "user",
-            "timestamp": "2025-01-01T00:00:00Z",
-            "message": {"role": "user", "content": "Hello"},
-        },
-        {
-            "type": "assistant",
-            "timestamp": "2025-01-01T00:01:00Z",
-            "message": {"role": "assistant", "content": "Hi"},
-        },
-    ]
+    messages = []
+    for i in range(num_messages):
+        role = "user" if i % 2 == 0 else "assistant"
+        messages.append(
+            {
+                "type": role,
+                "timestamp": f"2025-01-01T00:{i:02d}:00Z",
+                "message": {"role": role, "content": f"Message {i}"},
+            }
+        )
     path.write_text("\n".join(json.dumps(m) for m in messages) + "\n")
     return path
 
@@ -59,15 +63,18 @@ class TestIngestionPipeline:
         _make_jsonl_file(tmp_path / "data", "conv.jsonl")
 
         mock_processor = MagicMock()
-        mock_processor.process_session.return_value = ExtractionResult(
-            entities=[
-                Entity(
-                    name="FastAPI",
-                    type=EntityType.TECHNOLOGY,
-                    description="Framework",
-                )
-            ],
-            relationships=[],
+        mock_processor.process_session.return_value = (
+            ExtractionResult(
+                entities=[
+                    Entity(
+                        name="FastAPI",
+                        type=EntityType.TECHNOLOGY,
+                        description="Framework",
+                    )
+                ],
+                relationships=[],
+            ),
+            UsageStats(api_calls=1, input_tokens=200, output_tokens=100),
         )
 
         pipeline = IngestionPipeline(
@@ -78,6 +85,7 @@ class TestIngestionPipeline:
 
         assert result["files_processed"] == 1
         assert result["entities_stored"] >= 1
+        assert result["usage"].api_calls == 1
         mock_processor.process_session.assert_called_once()
 
     def test_pipeline_skips_processed_files(
@@ -110,9 +118,12 @@ class TestIngestionPipeline:
         mock_processor = MagicMock()
         mock_processor.process_session.side_effect = [
             RuntimeError("API failed"),
-            ExtractionResult(
-                entities=[Entity(name="X", type=EntityType.CONCEPT)],
-                relationships=[],
+            (
+                ExtractionResult(
+                    entities=[Entity(name="X", type=EntityType.CONCEPT)],
+                    relationships=[],
+                ),
+                UsageStats(api_calls=1),
             ),
         ]
 
@@ -124,3 +135,21 @@ class TestIngestionPipeline:
 
         assert result["files_processed"] == 1
         assert result["errors"] == 1
+
+    def test_pipeline_skips_short_sessions(
+        self, tmp_path: Path, graph_store: GraphStore
+    ) -> None:
+        """Sessions with fewer than MIN_SESSION_MESSAGES are skipped."""
+        _make_jsonl_file(tmp_path / "data", "short.jsonl", num_messages=2)
+
+        mock_processor = MagicMock()
+        pipeline = IngestionPipeline(
+            store=graph_store,
+            processor=mock_processor,
+        )
+        result = pipeline.ingest(tmp_path / "data")
+
+        assert result["files_processed"] == 0
+        assert result["sessions_skipped_short"] == 1
+        assert result["files_skipped"] == 1
+        mock_processor.process_session.assert_not_called()

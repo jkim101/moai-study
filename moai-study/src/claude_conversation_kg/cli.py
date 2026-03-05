@@ -59,12 +59,40 @@ def ingest(
 
     console.print(f"[green]Files processed:[/green] {result['files_processed']}")
     console.print(f"[yellow]Files skipped:[/yellow] {result['files_skipped']}")
+    if result.get("sessions_skipped_short", 0):
+        console.print(
+            f"[yellow]Short sessions skipped:[/yellow] "
+            f"{result['sessions_skipped_short']}"
+        )
     console.print(f"[green]Entities stored:[/green] {result['entities_stored']}")
     console.print(
         f"[green]Relationships stored:[/green] {result['relationships_stored']}"
     )
     if result["errors"]:
         console.print(f"[red]Errors:[/red] {result['errors']}")
+
+    # Display token usage report
+    usage = result.get("usage")
+    if usage and usage.api_calls > 0:
+        usage_table = Table(title="API Usage Report")
+        usage_table.add_column("Metric", style="bold")
+        usage_table.add_column("Value", justify="right")
+
+        usage_table.add_row("API Calls", str(usage.api_calls))
+        usage_table.add_row("Input Tokens", f"{usage.input_tokens:,}")
+        usage_table.add_row("Output Tokens", f"{usage.output_tokens:,}")
+        if usage.cache_creation_input_tokens:
+            usage_table.add_row(
+                "Cache Write Tokens", f"{usage.cache_creation_input_tokens:,}"
+            )
+        if usage.cache_read_input_tokens:
+            usage_table.add_row(
+                "Cache Read Tokens", f"{usage.cache_read_input_tokens:,}"
+            )
+        usage_table.add_row("Estimated Cost", f"${usage.estimated_cost_usd:.4f}")
+
+        console.print()
+        console.print(usage_table)
 
 
 @app.command()

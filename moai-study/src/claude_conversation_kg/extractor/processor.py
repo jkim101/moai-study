@@ -6,7 +6,7 @@ import hashlib
 import logging
 
 from claude_conversation_kg.extractor.client import ExtractionClient
-from claude_conversation_kg.extractor.models import ExtractionResult
+from claude_conversation_kg.extractor.models import ExtractionResult, UsageStats
 from claude_conversation_kg.parser.models import ConversationSession
 
 logger = logging.getLogger(__name__)
@@ -28,30 +28,33 @@ class BatchProcessor:
         self,
         session: ConversationSession,
         batch_size: int = 10,
-    ) -> ExtractionResult:
+    ) -> tuple[ExtractionResult, UsageStats]:
         """Process a session by batching messages and calling the extraction client.
 
         Results are cached by session content hash to avoid re-processing.
+        Returns a tuple of (ExtractionResult, UsageStats).
         """
         session_hash = self._session_hash(session)
 
         if session_hash in self._cache:
             logger.info("Cache hit for session %s", session.file_path)
-            return self._cache[session_hash]
+            return self._cache[session_hash], UsageStats()
 
         all_entities = []
         all_relationships = []
+        accumulated_usage = UsageStats()
 
         messages = session.messages
         for i in range(0, len(messages), batch_size):
             batch = messages[i : i + batch_size]
-            result = self._client.extract(batch)
+            result, usage = self._client.extract(batch)
             all_entities.extend(result.entities)
             all_relationships.extend(result.relationships)
+            accumulated_usage = accumulated_usage + usage
 
         combined = ExtractionResult(
             entities=all_entities,
             relationships=all_relationships,
         )
         self._cache[session_hash] = combined
-        return combined
+        return combined, accumulated_usage

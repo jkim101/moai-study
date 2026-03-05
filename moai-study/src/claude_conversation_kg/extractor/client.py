@@ -15,6 +15,7 @@ from claude_conversation_kg.extractor.models import (
     ExtractionResult,
     Relationship,
     RelationshipType,
+    UsageStats,
 )
 from claude_conversation_kg.extractor.prompts import SYSTEM_PROMPT, build_user_prompt
 from claude_conversation_kg.parser.models import ConversationMessage
@@ -33,11 +34,12 @@ class ExtractionClient:
         self,
         messages: list[ConversationMessage],
         max_retries: int = 3,
-    ) -> ExtractionResult:
+    ) -> tuple[ExtractionResult, UsageStats]:
         """Extract entities and relationships from conversation messages.
 
         Implements exponential backoff for rate limit errors.
         Halts immediately on authentication errors.
+        Returns a tuple of (ExtractionResult, UsageStats).
         """
         user_prompt = build_user_prompt(messages)
 
@@ -46,11 +48,18 @@ class ExtractionClient:
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=4096,
-                    system=SYSTEM_PROMPT,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": SYSTEM_PROMPT,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
                     messages=[{"role": "user", "content": user_prompt}],
                 )
                 raw_text = response.content[0].text
-                return self._parse_response(raw_text)
+                usage = self._extract_usage(response)
+                return self._parse_response(raw_text), usage
 
             except anthropic.AuthenticationError as e:
                 raise AuthenticationError(
@@ -80,6 +89,23 @@ class ExtractionClient:
                 time.sleep(wait_time)
 
         raise ExtractionError("Extraction failed: unexpected state")
+
+    @staticmethod
+    def _extract_usage(response: object) -> UsageStats:
+        """Extract token usage statistics from an Anthropic API response."""
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return UsageStats(api_calls=1)
+        return UsageStats(
+            api_calls=1,
+            input_tokens=getattr(usage, "input_tokens", 0),
+            output_tokens=getattr(usage, "output_tokens", 0),
+            cache_creation_input_tokens=getattr(
+                usage, "cache_creation_input_tokens", 0
+            )
+            or 0,
+            cache_read_input_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+        )
 
     def _extract_json_blocks(self, text: str) -> list[dict]:
         """Extract all JSON objects from text.

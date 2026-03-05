@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 kuzu = pytest.importorskip("kuzu")
 
 from claude_conversation_kg.cli import app
+from claude_conversation_kg.extractor.models import UsageStats
 
 runner = CliRunner()
 
@@ -35,15 +36,25 @@ class TestCLI:
         mock_pipeline.ingest.return_value = {
             "files_processed": 2,
             "files_skipped": 1,
+            "sessions_skipped_short": 0,
             "entities_stored": 5,
             "relationships_stored": 3,
             "errors": 0,
+            "usage": UsageStats(
+                api_calls=3,
+                input_tokens=1500,
+                output_tokens=600,
+                cache_creation_input_tokens=500,
+                cache_read_input_tokens=200,
+            ),
         }
         mock_build.return_value = mock_pipeline
 
         result = runner.invoke(app, ["ingest", str(tmp_path)])
         assert result.exit_code == 0
         assert "2" in result.output  # files processed
+        assert "API Calls" in result.output
+        assert "1,500" in result.output  # input tokens formatted
 
     @patch("claude_conversation_kg.cli._build_query_runner")
     def test_query_command(self, mock_build: MagicMock) -> None:

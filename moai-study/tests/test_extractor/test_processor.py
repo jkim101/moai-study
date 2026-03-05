@@ -11,6 +11,7 @@ from claude_conversation_kg.extractor.models import (
     ExtractionResult,
     Relationship,
     RelationshipType,
+    UsageStats,
 )
 from claude_conversation_kg.extractor.processor import BatchProcessor
 from claude_conversation_kg.parser.models import (
@@ -41,28 +42,39 @@ class TestBatchProcessor:
     def test_messages_batched_by_size(self) -> None:
         """25 messages are split into 3 batches (10+10+5)."""
         mock_client = MagicMock()
-        mock_client.extract.return_value = _make_extraction_result()
+        mock_client.extract.return_value = (
+            _make_extraction_result(),
+            UsageStats(api_calls=1, input_tokens=100, output_tokens=50),
+        )
 
         processor = BatchProcessor(client=mock_client)
         session = _make_session(25)
-        processor.process_session(session, batch_size=10)
+        _result, usage = processor.process_session(session, batch_size=10)
 
         assert mock_client.extract.call_count == 3
+        assert usage.api_calls == 3
+        assert usage.input_tokens == 300
 
     def test_cache_by_session_hash(self) -> None:
         """Same session hash skips API call on second invocation."""
         mock_client = MagicMock()
-        mock_client.extract.return_value = _make_extraction_result()
+        mock_client.extract.return_value = (
+            _make_extraction_result(),
+            UsageStats(api_calls=1, input_tokens=100, output_tokens=50),
+        )
 
         processor = BatchProcessor(client=mock_client)
         session = _make_session(5)
 
-        result1 = processor.process_session(session, batch_size=10)
-        result2 = processor.process_session(session, batch_size=10)
+        result1, usage1 = processor.process_session(session, batch_size=10)
+        result2, usage2 = processor.process_session(session, batch_size=10)
 
         # Should only call extract once (cached on second call)
         assert mock_client.extract.call_count == 1
         assert len(result1.entities) == len(result2.entities)
+        assert usage1.api_calls == 1
+        # Cached call returns zero usage
+        assert usage2.api_calls == 0
 
     def test_results_aggregated(self) -> None:
         """Multiple batches produce a combined ExtractionResult."""
@@ -76,13 +88,21 @@ class TestBatchProcessor:
 
         mock_client = MagicMock()
         mock_client.extract.side_effect = [
-            ExtractionResult(entities=[entity1], relationships=[]),
-            ExtractionResult(entities=[entity2], relationships=[rel]),
+            (
+                ExtractionResult(entities=[entity1], relationships=[]),
+                UsageStats(api_calls=1, input_tokens=100, output_tokens=50),
+            ),
+            (
+                ExtractionResult(entities=[entity2], relationships=[rel]),
+                UsageStats(api_calls=1, input_tokens=120, output_tokens=60),
+            ),
         ]
 
         processor = BatchProcessor(client=mock_client)
         session = _make_session(15)
-        result = processor.process_session(session, batch_size=10)
+        result, usage = processor.process_session(session, batch_size=10)
 
         assert len(result.entities) == 2
         assert len(result.relationships) == 1
+        assert usage.api_calls == 2
+        assert usage.input_tokens == 220
