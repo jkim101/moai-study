@@ -40,7 +40,7 @@ class GraphRenderer:
         Nodes are color-coded by entity type and sized by mention_count.
         Edges are labeled by relationship type.
         """
-        net = Network(height="750px", width="100%", directed=True)
+        net = Network(height="100vh", width="100%", directed=True)
 
         # Fetch all entities including mention_count for node sizing
         entities = query_runner.execute(
