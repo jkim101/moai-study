@@ -23,10 +23,14 @@ logger = logging.getLogger(__name__)
 _PATH_NOISE = {"users", "home", "workspace", "dev", "projects", "src", "code"}
 
 
-def _session_timestamp(session: ConversationSession) -> datetime | None:
-    """Return the latest message timestamp from a session, or None."""
+def _session_timestamps(
+    session: ConversationSession,
+) -> tuple[datetime | None, datetime | None]:
+    """Return the (earliest, latest) message timestamps from a session."""
     timestamps = [m.timestamp for m in session.messages if m.timestamp is not None]
-    return max(timestamps) if timestamps else None
+    if not timestamps:
+        return None, None
+    return min(timestamps), max(timestamps)
 
 
 def _extract_project_name(file_path: Path) -> str:
@@ -101,14 +105,21 @@ class IngestionPipeline:
                 # Create Session node for this conversation file
                 session_id = jsonl_path.stem  # UUID filename without extension
                 project_name = _extract_project_name(jsonl_path)
-                self._store.upsert_session(session_id, project_name, jsonl_path)
+                ts_start, ts_end = _session_timestamps(session)
+                self._store.upsert_session(
+                    session_id, project_name, jsonl_path,
+                    started_at=ts_start, ended_at=ts_end,
+                )
 
                 result, usage = self._processor.process_session(session)
                 total_usage = total_usage + usage
-                ts = _session_timestamp(session)
 
                 for entity in result.entities:
-                    self._store.upsert_entity(entity, session_timestamp=ts)
+                    self._store.upsert_entity(
+                        entity,
+                        first_seen_candidate=ts_start,
+                        last_seen_candidate=ts_end,
+                    )
                     self._store.link_entity_to_session(entity.id, session_id)
                     entities_stored += 1
 

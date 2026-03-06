@@ -45,9 +45,16 @@ CREATE NODE TABLE IF NOT EXISTS Session (
     id STRING,
     project_name STRING,
     file_path STRING,
+    started_at TIMESTAMP,
+    ended_at TIMESTAMP,
     PRIMARY KEY (id)
 )
 """
+
+_SESSION_MIGRATION_QUERIES = [
+    "ALTER TABLE Session ADD COLUMN started_at TIMESTAMP",
+    "ALTER TABLE Session ADD COLUMN ended_at TIMESTAMP",
+]
 
 MENTIONED_IN_DDL = """
 CREATE REL TABLE IF NOT EXISTS MENTIONED_IN (
@@ -73,7 +80,7 @@ def _migrate(conn: kuzu.Connection) -> None:
     Each ALTER TABLE is wrapped in try/except so re-running is idempotent:
     Kuzu raises RuntimeError if the column already exists.
     """
-    for query in _ENTITY_MIGRATION_QUERIES:
+    for query in _ENTITY_MIGRATION_QUERIES + _SESSION_MIGRATION_QUERIES:
         try:
             conn.execute(query)
             logger.debug("Migration applied: %s", query.split("COLUMN")[1].strip())

@@ -20,26 +20,25 @@ class GraphStore:
         self._conn = conn
 
     def upsert_entity(
-        self, entity: Entity, session_timestamp: datetime | None = None
+        self,
+        entity: Entity,
+        first_seen_candidate: datetime | None = None,
+        last_seen_candidate: datetime | None = None,
     ) -> None:
         """Insert or update an entity by its id.
 
-        Tracks mention_count (incremented each call), first_seen (set only on
-        first insert), and last_seen (updated to session_timestamp when provided).
+        Tracks mention_count (incremented each call), first_seen (earliest
+        session start), and last_seen (latest session end).
         """
-        # Check whether entity already exists to determine first_seen logic
         existing = self._conn.execute(
             "MATCH (e:Entity {id: $id}) RETURN e.first_seen, e.mention_count",
             parameters={"id": entity.id},
         )
 
         if existing.has_next():
-            # Entity exists: preserve first_seen, increment mention_count
             row = existing.get_next()
             current_first_seen = row[0]
             current_count = row[1] or 0
-            new_count = current_count + 1
-            new_first_seen = current_first_seen  # unchanged
 
             params: dict = {
                 "id": entity.id,
@@ -47,12 +46,12 @@ class GraphStore:
                 "type": entity.type.value,
                 "description": entity.description,
                 "confidence": entity.confidence,
-                "mention_count": new_count,
-                "first_seen": new_first_seen,
+                "mention_count": current_count + 1,
+                "first_seen": current_first_seen,
             }
             set_last_seen = ""
-            if session_timestamp is not None:
-                params["last_seen"] = session_timestamp
+            if last_seen_candidate is not None:
+                params["last_seen"] = last_seen_candidate
                 set_last_seen = ", e.last_seen = $last_seen"
 
             self._conn.execute(
@@ -67,7 +66,6 @@ class GraphStore:
                 parameters=params,
             )
         else:
-            # New entity: set first_seen and last_seen from session_timestamp
             params = {
                 "id": entity.id,
                 "name": entity.name,
@@ -75,8 +73,8 @@ class GraphStore:
                 "description": entity.description,
                 "confidence": entity.confidence,
                 "mention_count": 1,
-                "first_seen": session_timestamp,
-                "last_seen": session_timestamp,
+                "first_seen": first_seen_candidate,
+                "last_seen": last_seen_candidate,
             }
             self._conn.execute(
                 """
@@ -128,19 +126,30 @@ class GraphStore:
         )
 
     def upsert_session(
-        self, session_id: str, project_name: str, file_path: Path
+        self,
+        session_id: str,
+        project_name: str,
+        file_path: Path,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
     ) -> None:
-        """Insert or update a Session node."""
+        """Insert or update a Session node with conversation timestamps."""
+        params: dict = {
+            "id": session_id,
+            "project": project_name,
+            "fp": str(file_path),
+        }
+        set_clauses = "s.project_name = $project, s.file_path = $fp"
+        if started_at is not None:
+            params["started_at"] = started_at
+            set_clauses += ", s.started_at = $started_at"
+        if ended_at is not None:
+            params["ended_at"] = ended_at
+            set_clauses += ", s.ended_at = $ended_at"
+
         self._conn.execute(
-            """
-            MERGE (s:Session {id: $id})
-            SET s.project_name = $project, s.file_path = $fp
-            """,
-            parameters={
-                "id": session_id,
-                "project": project_name,
-                "fp": str(file_path),
-            },
+            f"MERGE (s:Session {{id: $id}}) SET {set_clauses}",
+            parameters=params,
         )
 
     def link_entity_to_session(self, entity_id: str, session_id: str) -> None:

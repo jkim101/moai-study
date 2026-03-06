@@ -10,6 +10,10 @@
 <body>
     <div class="header">
         <h1>KG Dashboard</h1>
+        <button id="dark-mode-toggle" class="dark-mode-toggle" title="Toggle dark mode">
+            <span class="icon-light">&#9788;</span>
+            <span class="icon-dark">&#9790;</span>
+        </button>
     </div>
 
     <div class="container">
@@ -61,7 +65,7 @@
         <section class="search-section">
             <h2>Entity Search</h2>
             <div class="search-container">
-                <input type="text" id="search-input" placeholder="Search entities..." autocomplete="off">
+                <input type="text" id="search-input" placeholder="Search entities..." autocomplete="off" aria-label="Search entities">
                 <div id="search-results" class="search-results"></div>
             </div>
             <div id="entity-detail" class="entity-detail" style="display:none;">
@@ -72,6 +76,7 @@
                 <div class="entity-meta">
                     <span>Mentions: <strong id="entity-mentions"></strong></span>
                     <span>First seen: <span id="entity-first-seen"></span></span>
+                    <span>Last seen: <span id="entity-last-seen"></span></span>
                 </div>
                 <h4>Connections</h4>
                 <div id="entity-connections" class="connections-list"></div>
@@ -86,7 +91,7 @@
                     <div class="chat-welcome">Ask a question about your knowledge graph in any language.</div>
                 </div>
                 <div class="chat-input-row">
-                    <input type="text" id="chat-input" placeholder="Type your question..." autocomplete="off">
+                    <input type="text" id="chat-input" placeholder="Type your question..." autocomplete="off" aria-label="Ask a question">
                     <button id="chat-send" class="btn-send">Send</button>
                 </div>
             </div>
@@ -94,10 +99,22 @@
 
         <!-- Graph Visualization -->
         <section class="graph-section">
-            <h2>Knowledge Graph</h2>
+            <div class="graph-header">
+                <h2>Knowledge Graph</h2>
+                <button id="export-graph" class="btn-export" title="Export as PNG">Export PNG</button>
+            </div>
             <div class="graph-container">
                 <div class="graph-filters">
                     <h3>Filters</h3>
+                    <div class="filter-group">
+                        <label>Time Range:</label>
+                        <div class="time-range-buttons">
+                            <button class="time-range-btn active" data-days="0">All</button>
+                            <button class="time-range-btn" data-days="7">7d</button>
+                            <button class="time-range-btn" data-days="30">30d</button>
+                            <button class="time-range-btn" data-days="90">90d</button>
+                        </div>
+                    </div>
                     <div class="filter-group">
                         <label>Entity Types:</label>
                         <div id="type-checkboxes"></div>
@@ -109,6 +126,10 @@
                     <div class="filter-group">
                         <label>Max Nodes: <span id="max-nodes-value">All</span></label>
                         <input type="range" id="max-nodes-slider" min="0" max="1000000" value="0" step="100">
+                    </div>
+                    <div class="filter-group">
+                        <label>Relationship Types:</label>
+                        <div id="rel-type-checkboxes"></div>
                     </div>
                     <button id="apply-filters" class="btn-apply">Apply Filters</button>
                 </div>

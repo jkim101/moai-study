@@ -25,6 +25,25 @@ app = typer.Typer(name="kg", help="Claude Conversation Knowledge Graph CLI")
 console = Console()
 
 
+def _print_usage_table(usage: object, title: str = "API Usage") -> None:
+    """Print a token usage summary table (shared by ingest and ask commands)."""
+    if not usage or getattr(usage, "api_calls", 0) == 0:
+        return
+    table = Table(title=title)
+    table.add_column("Metric", style="bold")
+    table.add_column("Value", justify="right")
+    table.add_row("API Calls", str(usage.api_calls))
+    table.add_row("Input Tokens", f"{usage.input_tokens:,}")
+    table.add_row("Output Tokens", f"{usage.output_tokens:,}")
+    if getattr(usage, "cache_creation_input_tokens", 0):
+        table.add_row("Cache Write Tokens", f"{usage.cache_creation_input_tokens:,}")
+    if getattr(usage, "cache_read_input_tokens", 0):
+        table.add_row("Cache Read Tokens", f"{usage.cache_read_input_tokens:,}")
+    table.add_row("Estimated Cost", f"${usage.estimated_cost_usd:.4f}")
+    console.print()
+    console.print(table)
+
+
 def _get_settings() -> Settings:
     """Load application settings."""
     return Settings()
@@ -74,28 +93,7 @@ def ingest(
     if result["errors"]:
         console.print(f"[red]Errors:[/red] {result['errors']}")
 
-    # Display token usage report
-    usage = result.get("usage")
-    if usage and usage.api_calls > 0:
-        usage_table = Table(title="API Usage Report")
-        usage_table.add_column("Metric", style="bold")
-        usage_table.add_column("Value", justify="right")
-
-        usage_table.add_row("API Calls", str(usage.api_calls))
-        usage_table.add_row("Input Tokens", f"{usage.input_tokens:,}")
-        usage_table.add_row("Output Tokens", f"{usage.output_tokens:,}")
-        if usage.cache_creation_input_tokens:
-            usage_table.add_row(
-                "Cache Write Tokens", f"{usage.cache_creation_input_tokens:,}"
-            )
-        if usage.cache_read_input_tokens:
-            usage_table.add_row(
-                "Cache Read Tokens", f"{usage.cache_read_input_tokens:,}"
-            )
-        usage_table.add_row("Estimated Cost", f"${usage.estimated_cost_usd:.4f}")
-
-        console.print()
-        console.print(usage_table)
+    _print_usage_table(result.get("usage"), title="API Usage Report")
 
 
 @app.command()
@@ -238,20 +236,7 @@ def ask(
     console.print(f"[dim]Cypher: {cypher}[/dim]\n")
     console.print(answer)
 
-    # Display usage stats.
-    usage = querier.usage
-    if usage.api_calls > 0:
-        console.print()
-        usage_table = Table(title="API Usage")
-        usage_table.add_column("Metric", style="bold")
-        usage_table.add_column("Value", justify="right")
-        usage_table.add_row("API Calls", str(usage.api_calls))
-        usage_table.add_row("Input Tokens", f"{usage.input_tokens:,}")
-        usage_table.add_row("Output Tokens", f"{usage.output_tokens:,}")
-        usage_table.add_row(
-            "Estimated Cost", f"${usage.estimated_cost_usd:.4f}"
-        )
-        console.print(usage_table)
+    _print_usage_table(querier.usage)
 
 
 @app.command()
@@ -293,3 +278,123 @@ def stats() -> None:
         table.add_row(f"  {rtype}", str(count))
 
     console.print(table)
+
+
+@app.command()
+def context(
+    top: int = typer.Option(10, "--top", "-n", help="Number of top entities to show"),
+    days: int = typer.Option(7, "--days", "-d", help="Recent activity window in days"),
+    plain: bool = typer.Option(
+        False, "--plain", "-p", help="Plain text output (for hooks/scripts)"
+    ),
+) -> None:
+    """Generate a project context summary from the knowledge graph.
+
+    Outputs top entities, relationships, and recent activity.
+    Use --plain for machine-readable output suitable for session hooks.
+    """
+    runner = _build_query_runner()
+    graph_stats = runner.get_stats()
+
+    if graph_stats["total_entities"] == 0:
+        if plain:
+            print("Knowledge graph is empty. Run 'kg ingest' first.")
+        else:
+            console.print("[yellow]Graph is empty. Run 'kg ingest' first.[/yellow]")
+        return
+
+    audit_data = runner.get_audit(limit=top)
+    recent_entities = runner.get_recent_entities(days=days)
+
+    if plain:
+        _print_context_plain(graph_stats, audit_data, recent_entities, top, days)
+    else:
+        _print_context_rich(graph_stats, audit_data, recent_entities, top, days)
+
+
+def _print_context_plain(
+    graph_stats: dict,
+    audit_data: dict,
+    recent_entities: list[dict],
+    top: int,
+    days: int,
+) -> None:
+    """Print context summary as plain text for hooks/scripts."""
+    lines = [
+        "# Knowledge Graph Context",
+        f"Entities: {graph_stats['total_entities']} | "
+        f"Relationships: {graph_stats['total_relationships']}",
+        "",
+        "## Type Distribution",
+    ]
+    for etype, count in graph_stats.get("entities_by_type", {}).items():
+        lines.append(f"- {etype}: {count}")
+
+    lines.append("")
+    lines.append(f"## Top {top} Entities")
+    for entity in audit_data.get("top_entities", []):
+        lines.append(
+            f"- {entity['name']} ({entity['type']}) — {entity['mention_count']}x"
+        )
+
+    if recent_entities:
+        lines.append("")
+        lines.append(f"## Recent Activity (last {days}d)")
+        for entity in recent_entities[:10]:
+            lines.append(
+                f"- {entity['name']} ({entity['type']}) — "
+                f"first seen {entity['first_seen']}"
+            )
+
+    print("\n".join(lines))
+
+
+def _print_context_rich(
+    graph_stats: dict,
+    audit_data: dict,
+    recent_entities: list[dict],
+    top: int,
+    days: int,
+) -> None:
+    """Print context summary with rich formatting."""
+    console.print(
+        f"[bold]Knowledge Graph:[/bold] "
+        f"{graph_stats['total_entities']:,} entities, "
+        f"{graph_stats['total_relationships']:,} relationships\n"
+    )
+
+    # Type distribution
+    type_table = Table(title="Type Distribution")
+    type_table.add_column("Type", style="cyan")
+    type_table.add_column("Count", justify="right")
+    for etype, count in graph_stats.get("entities_by_type", {}).items():
+        type_table.add_row(etype, str(count))
+    console.print(type_table)
+
+    # Top entities
+    console.print()
+    top_table = Table(title=f"Top {top} Entities")
+    top_table.add_column("#", style="dim", width=4)
+    top_table.add_column("Entity", style="bold")
+    top_table.add_column("Type", style="cyan")
+    top_table.add_column("Mentions", justify="right", style="green")
+    for i, entity in enumerate(audit_data.get("top_entities", []), 1):
+        top_table.add_row(
+            str(i), entity["name"], entity["type"], str(entity["mention_count"])
+        )
+    console.print(top_table)
+
+    # Recent activity
+    if recent_entities:
+        console.print()
+        recent_table = Table(title=f"Recent Activity (last {days}d)")
+        recent_table.add_column("Entity", style="bold")
+        recent_table.add_column("Type", style="cyan")
+        recent_table.add_column("First Seen", style="dim")
+        for entity in recent_entities[:10]:
+            recent_table.add_row(
+                entity["name"], entity["type"], str(entity["first_seen"])
+            )
+        console.print(recent_table)
+    else:
+        console.print(f"\n[dim]No new entities in the last {days} day(s).[/dim]")

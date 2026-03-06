@@ -103,7 +103,7 @@ class TestTimestampTracking:
         """first_seen is recorded when an entity is first inserted."""
         ts = datetime(2025, 1, 1, tzinfo=UTC)
         entity = Entity(name="FastAPI", type=EntityType.TECHNOLOGY)
-        store.upsert_entity(entity, session_timestamp=ts)
+        store.upsert_entity(entity, first_seen_candidate=ts, last_seen_candidate=ts)
 
         result = store._conn.execute(
             "MATCH (e:Entity {id: $id}) RETURN e.first_seen",
@@ -117,8 +117,12 @@ class TestTimestampTracking:
         ts_late = datetime(2025, 6, 1, tzinfo=UTC)
         entity = Entity(name="FastAPI", type=EntityType.TECHNOLOGY)
 
-        store.upsert_entity(entity, session_timestamp=ts_early)
-        store.upsert_entity(entity, session_timestamp=ts_late)
+        store.upsert_entity(
+            entity, first_seen_candidate=ts_early, last_seen_candidate=ts_early,
+        )
+        store.upsert_entity(
+            entity, first_seen_candidate=ts_late, last_seen_candidate=ts_late,
+        )
 
         result = store._conn.execute(
             "MATCH (e:Entity {id: $id}) RETURN e.first_seen",
@@ -139,8 +143,12 @@ class TestTimestampTracking:
         ts_late = datetime(2025, 6, 1, tzinfo=UTC)
         entity = Entity(name="FastAPI", type=EntityType.TECHNOLOGY)
 
-        store.upsert_entity(entity, session_timestamp=ts_early)
-        store.upsert_entity(entity, session_timestamp=ts_late)
+        store.upsert_entity(
+            entity, first_seen_candidate=ts_early, last_seen_candidate=ts_early,
+        )
+        store.upsert_entity(
+            entity, first_seen_candidate=ts_late, last_seen_candidate=ts_late,
+        )
 
         result = store._conn.execute(
             "MATCH (e:Entity {id: $id}) RETURN e.last_seen",

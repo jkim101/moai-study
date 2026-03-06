@@ -41,8 +41,11 @@ NLQ_SCHEMA_PROMPT = (
     "- Kuzu does not support the type() function on relationships. "
     "Query each relationship type separately if needed.\n"
     "- Use LIMIT to keep results manageable (default 20).\n"
-    "- For timestamp filtering use: timestamp('YYYY-MM-DD HH:MM:SS').\n\n"
-    "Examples:\n"
+    "- For timestamp filtering use: timestamp('YYYY-MM-DD HH:MM:SS').\n"
+    "- Use CONTAINS for partial name matching (case-sensitive).\n"
+    "- Entity names are case-sensitive. Use common capitalization "
+    "(e.g. 'Python', 'FastAPI', 'React').\n\n"
+    "Examples:\n\n"
     "Q: What technologies are in the graph?\n"
     "```cypher\n"
     "MATCH (e:Entity) WHERE e.type = 'Technology' "
@@ -54,6 +57,53 @@ NLQ_SCHEMA_PROMPT = (
     "MATCH (a:Entity)-[:USES]->(b:Entity) "
     "WHERE a.name = 'FastAPI' AND b.type = 'Library' "
     "RETURN b.name, b.description LIMIT 20\n"
+    "```\n\n"
+    "Q: What depends on Python?\n"
+    "```cypher\n"
+    "MATCH (a:Entity)-[:DEPENDS_ON]->(b:Entity) "
+    "WHERE b.name = 'Python' "
+    "RETURN a.name, a.type, a.mention_count "
+    "ORDER BY a.mention_count DESC LIMIT 20\n"
+    "```\n\n"
+    "Q: 가장 많이 언급된 엔티티 5개는?\n"
+    "```cypher\n"
+    "MATCH (e:Entity) "
+    "RETURN e.name, e.type, e.mention_count "
+    "ORDER BY e.mention_count DESC LIMIT 5\n"
+    "```\n\n"
+    "Q: 최근 7일 내 새로운 엔티티는?\n"
+    "```cypher\n"
+    "MATCH (e:Entity) "
+    "WHERE e.first_seen >= timestamp('2026-02-27 00:00:00') "
+    "RETURN e.name, e.type, e.first_seen, e.mention_count "
+    "ORDER BY e.first_seen DESC LIMIT 20\n"
+    "```\n\n"
+    "Q: 10번 이상 언급된 Technology 타입 엔티티는?\n"
+    "```cypher\n"
+    "MATCH (e:Entity) "
+    "WHERE e.type = 'Technology' AND e.mention_count >= 10 "
+    "RETURN e.name, e.mention_count "
+    "ORDER BY e.mention_count DESC LIMIT 20\n"
+    "```\n\n"
+    "Q: Python과 관련된 모든 엔티티는?\n"
+    "```cypher\n"
+    "MATCH (a:Entity)-[:USES]->(b:Entity) "
+    "WHERE a.name = 'Python' "
+    "RETURN b.name, b.type, b.mention_count "
+    "ORDER BY b.mention_count DESC LIMIT 20\n"
+    "```\n\n"
+    "Q: How many entities are there per type?\n"
+    "```cypher\n"
+    "MATCH (e:Entity) "
+    "RETURN e.type, count(e) AS cnt "
+    "ORDER BY cnt DESC\n"
+    "```\n\n"
+    "Q: Which entities solve a Problem?\n"
+    "```cypher\n"
+    "MATCH (a:Entity)-[:SOLVES]->(b:Entity) "
+    "WHERE b.type = 'Problem' "
+    "RETURN a.name, a.type, b.name "
+    "ORDER BY a.mention_count DESC LIMIT 20\n"
     "```\n"
 )
 
@@ -62,6 +112,9 @@ SUMMARIZE_SYSTEM_PROMPT = (
     "in natural language. Be concise and informative. "
     "Answer in the same language as the user's question."
 )
+
+
+_CYPHER_FENCE_RE = re.compile(r"```(?:cypher)?\s*([\s\S]*?)```")
 
 
 class NaturalLanguageQuerier:
@@ -127,7 +180,7 @@ class NaturalLanguageQuerier:
         )
         self.usage = self.usage + self._extract_usage(response)
 
-        raw_text = response.content[0].text
+        raw_text = self._get_response_text(response)
         return self._parse_cypher(raw_text)
 
     def _summarize(self, question: str, rows: list[dict]) -> str:
@@ -157,7 +210,19 @@ class NaturalLanguageQuerier:
             ],
         )
         self.usage = self.usage + self._extract_usage(response)
-        return response.content[0].text
+        return self._get_response_text(response)
+
+    @staticmethod
+    def _get_response_text(response: object) -> str:
+        """Safely extract text from an Anthropic API response.
+
+        Raises:
+            QueryError: When the response contains no text content.
+        """
+        content = getattr(response, "content", None)
+        if not content:
+            raise QueryError("AI returned an empty response. Please try again.")
+        return content[0].text
 
     @staticmethod
     def _parse_cypher(raw_text: str) -> str:
@@ -167,7 +232,7 @@ class NaturalLanguageQuerier:
             QueryError: When no valid Cypher query can be extracted.
         """
         # Try to extract from ```cypher ... ``` fence first.
-        match = re.search(r"```(?:cypher)?\s*([\s\S]*?)```", raw_text)
+        match = _CYPHER_FENCE_RE.search(raw_text)
         if match:
             return match.group(1).strip()
         # Fallback: accept raw text only if it looks like Cypher.

@@ -1,6 +1,7 @@
 /* KG Dashboard - Frontend Logic */
 
 document.addEventListener("DOMContentLoaded", function () {
+    initDarkMode();
     loadStats();
     loadAudit();
     loadGraph();
@@ -23,6 +24,7 @@ async function loadStats() {
 
         // Populate graph filter checkboxes from stats data
         loadGraphFilters(data);
+        loadRelTypeFilters(data);
     } catch (err) {
         setText("entity-count", "--");
         setText("relationship-count", "--");
@@ -203,29 +205,57 @@ function simpleMarkdown(text) {
 }
 
 /**
- * Populate graph filter checkboxes from stats data.
+ * Populate a checkbox filter group from a { name: count } object.
  */
-function loadGraphFilters(statsData) {
-    var container = document.getElementById("type-checkboxes");
-    if (!container || !statsData.entities_by_type) return;
+function loadFilterCheckboxes(containerId, dataByType) {
+    var container = document.getElementById(containerId);
+    if (!container || !dataByType) return;
 
     container.innerHTML = "";
-    var entries = Object.entries(statsData.entities_by_type).sort(function (a, b) {
+    var entries = Object.entries(dataByType).sort(function (a, b) {
         return b[1] - a[1];
     });
 
     entries.forEach(function (entry) {
-        var typeName = entry[0];
+        var name = entry[0];
         var count = entry[1];
         var label = document.createElement("label");
         label.className = "checkbox-label";
         var checkbox = document.createElement("input");
         checkbox.type = "checkbox";
-        checkbox.value = typeName;
+        checkbox.value = name;
         checkbox.checked = true;
         label.appendChild(checkbox);
-        label.appendChild(document.createTextNode(" " + typeName + " (" + count + ")"));
+        label.appendChild(document.createTextNode(" " + name + " (" + count + ")"));
         container.appendChild(label);
+    });
+}
+
+function loadGraphFilters(statsData) {
+    loadFilterCheckboxes("type-checkboxes", statsData.entities_by_type);
+}
+
+function loadRelTypeFilters(statsData) {
+    loadFilterCheckboxes("rel-type-checkboxes", statsData.relationships_by_type);
+}
+
+/* ── Dark Mode ── */
+
+/**
+ * Initialize dark mode from localStorage preference.
+ */
+function initDarkMode() {
+    var saved = localStorage.getItem("kg-dark-mode");
+    if (saved === "true") {
+        document.body.classList.add("dark");
+    }
+}
+
+var darkToggle = document.getElementById("dark-mode-toggle");
+if (darkToggle) {
+    darkToggle.addEventListener("click", function () {
+        document.body.classList.toggle("dark");
+        localStorage.setItem("kg-dark-mode", document.body.classList.contains("dark"));
     });
 }
 
@@ -247,6 +277,9 @@ var DEFAULT_COLOR = "#CCCCCC";
 
 var graphNetwork = null;
 
+// Track selected time range (days). 0 = all.
+var selectedSinceDays = 0;
+
 /**
  * Build API URL from current filter state and load graph data.
  */
@@ -261,6 +294,7 @@ function applyGraphFilters() {
     if (maxNodes > 0) params.push("limit=" + maxNodes);
     if (types) params.push("types=" + encodeURIComponent(types));
     if (minMentions > 0) params.push("min_mentions=" + minMentions);
+    if (selectedSinceDays > 0) params.push("since_days=" + selectedSinceDays);
     var url = "/api/graph/data" + (params.length ? "?" + params.join("&") : "");
 
     loadGraph(url);
@@ -281,6 +315,19 @@ async function loadGraph(url) {
     } catch (err) {
         container.innerHTML = '<p style="padding:20px;color:#999;">Failed to load graph.</p>';
     }
+}
+
+/**
+ * Get selected relationship types from filter checkboxes.
+ */
+function getSelectedRelTypes() {
+    var checkboxes = document.querySelectorAll("#rel-type-checkboxes input[type='checkbox']");
+    if (checkboxes.length === 0) return null; // No filter loaded yet
+    var selected = new Set();
+    checkboxes.forEach(function (cb) {
+        if (cb.checked) selected.add(cb.value);
+    });
+    return selected;
 }
 
 /**
@@ -308,7 +355,12 @@ function renderGraph(container, data) {
         };
     }));
 
-    var edges = new vis.DataSet(data.edges.map(function (e) {
+    var selectedRelTypes = getSelectedRelTypes();
+    var filteredEdges = data.edges.filter(function (e) {
+        return !selectedRelTypes || selectedRelTypes.has(e.label);
+    });
+
+    var edges = new vis.DataSet(filteredEdges.map(function (e) {
         return {
             from: e.from,
             to: e.to,
@@ -363,6 +415,19 @@ function renderGraph(container, data) {
             graphNetwork.setOptions({ physics: { enabled: false } });
         }, 1000);
     });
+
+    // Click on a node to show entity detail panel
+    graphNetwork.on("click", function (params) {
+        if (params.nodes && params.nodes.length > 0) {
+            var nodeId = params.nodes[0];
+            loadEntityDetail(nodeId);
+            // Scroll to entity detail panel
+            var detail = document.getElementById("entity-detail");
+            if (detail) {
+                detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+        }
+    });
 }
 
 /* ── Entity Search ── */
@@ -381,6 +446,16 @@ function debounce(fn, delay) {
         }, delay);
     };
 }
+
+// Event delegation for search results and entity connections (avoids re-registering listeners)
+document.getElementById("search-results").addEventListener("click", function (e) {
+    var item = e.target.closest(".search-result-item");
+    if (item) loadEntityDetail(item.getAttribute("data-id"));
+});
+document.getElementById("entity-connections").addEventListener("click", function (e) {
+    var item = e.target.closest(".connection-item");
+    if (item) loadEntityDetail(item.getAttribute("data-id"));
+});
 
 // Live search with debounce
 var searchInput = document.getElementById("search-input");
@@ -439,13 +514,6 @@ function renderSearchResults(results) {
             "</div>";
     });
     container.innerHTML = html;
-
-    // Click handlers for each result item
-    container.querySelectorAll(".search-result-item").forEach(function (item) {
-        item.addEventListener("click", function () {
-            loadEntityDetail(this.getAttribute("data-id"));
-        });
-    });
 }
 
 /**
@@ -460,7 +528,11 @@ async function loadEntityDetail(entityId) {
         var data = await resp.json();
         renderEntityDetail(data);
     } catch (err) {
-        // Silently ignore fetch errors
+        var detail = document.getElementById("entity-detail");
+        if (detail) {
+            detail.style.display = "block";
+            setText("entity-name", "Failed to load entity");
+        }
     }
 }
 
@@ -475,6 +547,7 @@ function renderEntityDetail(data) {
     setText("entity-type", data.entity.type);
     setText("entity-mentions", String(data.entity.mention_count));
     setText("entity-first-seen", data.entity.first_seen || "Unknown");
+    setText("entity-last-seen", data.entity.last_seen || "Unknown");
 
     // Clear search results when showing detail
     document.getElementById("search-results").innerHTML = "";
@@ -510,13 +583,6 @@ function renderEntityDetail(data) {
             "</div>";
     });
     container.innerHTML = html;
-
-    // Click on connection navigates to that entity
-    container.querySelectorAll(".connection-item").forEach(function (item) {
-        item.addEventListener("click", function () {
-            loadEntityDetail(this.getAttribute("data-id"));
-        });
-    });
 }
 
 /* ── Chat Interface ── */
@@ -643,6 +709,32 @@ if (maxNodesSlider) {
         if (display) display.textContent = e.target.value === "0" ? "All" : e.target.value;
     });
 }
+
+// Export graph as PNG
+var exportBtn = document.getElementById("export-graph");
+if (exportBtn) {
+    exportBtn.addEventListener("click", function () {
+        if (!graphNetwork) return;
+        var canvas = document.querySelector("#graph-canvas canvas");
+        if (!canvas) return;
+        var link = document.createElement("a");
+        link.download = "knowledge-graph.png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+    });
+}
+
+// Time range buttons
+document.querySelectorAll(".time-range-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+        document.querySelectorAll(".time-range-btn").forEach(function (b) {
+            b.classList.remove("active");
+        });
+        btn.classList.add("active");
+        selectedSinceDays = parseInt(btn.getAttribute("data-days")) || 0;
+        applyGraphFilters();
+    });
+});
 
 // Apply button
 var applyBtn = document.getElementById("apply-filters");

@@ -187,7 +187,8 @@ class QueryRunner:
         # Get entity info
         result = self._conn.execute(
             "MATCH (e:Entity) WHERE e.id = $id "
-            "RETURN e.id, e.name, e.type, e.mention_count, e.first_seen",
+            "RETURN e.id, e.name, e.type, e.mention_count, "
+            "e.first_seen, e.last_seen",
             parameters={"id": entity_id},
         )
         if not result.has_next():
@@ -200,6 +201,7 @@ class QueryRunner:
             "type": row[2],
             "mention_count": row[3] or 0,
             "first_seen": str(row[4]) if row[4] else None,
+            "last_seen": str(row[5]) if row[5] else None,
         }
 
         # Get connections (both outgoing and incoming)

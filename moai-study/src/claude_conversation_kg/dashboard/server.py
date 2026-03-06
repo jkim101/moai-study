@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -20,6 +22,8 @@ from claude_conversation_kg.graph.schema import initialize_schema
 from claude_conversation_kg.nlq import NaturalLanguageQuerier
 
 logger = logging.getLogger(__name__)
+
+_SAFE_TYPE_RE = re.compile(r"^[A-Za-z0-9_ ]+$")
 
 app = FastAPI(title="KG Dashboard")
 
@@ -78,21 +82,30 @@ def _build_graph_data(
     type_filter: set[str] | None = None,
     min_mentions: int = 0,
     limit: int = 0,
+    since_days: int = 0,
 ) -> dict:
     """Build filtered graph data as JSON-serialisable nodes and edges.
 
     Filtering is done via Cypher WHERE clauses so the DB handles the
     heavy lifting instead of fetching all entities into Python.
     When limit is 0, all matching entities are returned.
+    When since_days > 0, only entities first seen within the
+    last N days are included.
     """
-    # Build WHERE clause with safe inline values
+    # Build WHERE clause with validated inline values
     conditions: list[str] = []
     if type_filter:
-        # Entity types originate from our own DB schema -- safe to inline.
-        quoted = ", ".join(f"'{t}'" for t in type_filter)
-        conditions.append(f"e.type IN [{quoted}]")
+        # Validate type names to prevent Cypher injection.
+        safe_types = {t for t in type_filter if _SAFE_TYPE_RE.match(t)}
+        if safe_types:
+            quoted = ", ".join(f"'{t}'" for t in safe_types)
+            conditions.append(f"e.type IN [{quoted}]")
     if min_mentions > 0:
         conditions.append(f"e.mention_count >= {min_mentions}")
+    if since_days > 0:
+        since = datetime.now(tz=UTC) - timedelta(days=since_days)
+        since_str = since.strftime("%Y-%m-%d %H:%M:%S")
+        conditions.append(f"e.first_seen >= timestamp('{since_str}')")
 
     where_sql = " WHERE " + " AND ".join(conditions) if conditions else ""
     limit_sql = f" LIMIT {limit}" if limit > 0 else ""
@@ -108,7 +121,8 @@ def _build_graph_data(
 
     nodes: list[dict] = []
     for e in entities:
-        mention_count = e.get("e.mention_count") or 1
+        raw_count = e.get("e.mention_count")
+        mention_count = raw_count if raw_count is not None else 1
         nodes.append(
             {
                 "id": e["e.id"],
@@ -168,14 +182,19 @@ async def api_graph_data(
     types: str | None = None,
     min_mentions: int = 0,
     limit: int = 0,
+    since_days: int = 0,
 ) -> dict:
-    """Return filtered graph data as JSON nodes and edges. Limit=0 means all."""
+    """Return filtered graph data as JSON nodes and edges.
+
+    Limit=0 means all. since_days=0 means no time filter.
+    """
     type_filter = set(types.split(",")) if types else None
     return _build_graph_data(
         runner,
         type_filter=type_filter,
         min_mentions=min_mentions,
         limit=limit,
+        since_days=since_days,
     )
 
 
