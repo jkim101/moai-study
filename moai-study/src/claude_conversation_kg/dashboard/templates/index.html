@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KG Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://unpkg.com/vis-network@9.1.9/dist/vis-network.min.js"></script>
+</head>
+<body>
+    <div class="header">
+        <h1>KG Dashboard</h1>
+    </div>
+
+    <div class="container">
+        <!-- Metric Cards -->
+        <div class="metrics-row">
+            <div class="metric-card">
+                <div class="value" id="entity-count">--</div>
+                <div class="label">Entities</div>
+            </div>
+            <div class="metric-card">
+                <div class="value" id="relationship-count">--</div>
+                <div class="label">Relationships</div>
+            </div>
+            <div class="metric-card">
+                <div class="value" id="top-mention">--</div>
+                <div class="label">Top Mention</div>
+                <div class="label" id="top-mention-name"></div>
+            </div>
+        </div>
+
+        <!-- Entity Type Distribution -->
+        <div class="section">
+            <h2>Entity Type Distribution</h2>
+            <div id="type-distribution">
+                <p class="loading">Loading...</p>
+            </div>
+        </div>
+
+        <!-- Top 10 Most Mentioned -->
+        <div class="section">
+            <h2>Top 10 Most Mentioned</h2>
+            <table class="top-table" id="top-entities-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Entity</th>
+                        <th>Type</th>
+                        <th>Count</th>
+                    </tr>
+                </thead>
+                <tbody id="top-entities-body">
+                    <tr>
+                        <td colspan="4" class="loading">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <!-- Entity Search -->
+        <section class="search-section">
+            <h2>Entity Search</h2>
+            <div class="search-container">
+                <input type="text" id="search-input" placeholder="Search entities..." autocomplete="off">
+                <div id="search-results" class="search-results"></div>
+            </div>
+            <div id="entity-detail" class="entity-detail" style="display:none;">
+                <div class="entity-header">
+                    <h3 id="entity-name"></h3>
+                    <span id="entity-type" class="type-badge"></span>
+                </div>
+                <div class="entity-meta">
+                    <span>Mentions: <strong id="entity-mentions"></strong></span>
+                    <span>First seen: <span id="entity-first-seen"></span></span>
+                </div>
+                <h4>Connections</h4>
+                <div id="entity-connections" class="connections-list"></div>
+            </div>
+        </section>
+
+        <!-- Chat Interface -->
+        <section class="chat-section">
+            <h2>Ask about your Knowledge Graph</h2>
+            <div class="chat-container">
+                <div id="chat-messages" class="chat-messages">
+                    <div class="chat-welcome">Ask a question about your knowledge graph in any language.</div>
+                </div>
+                <div class="chat-input-row">
+                    <input type="text" id="chat-input" placeholder="Type your question..." autocomplete="off">
+                    <button id="chat-send" class="btn-send">Send</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Graph Visualization -->
+        <section class="graph-section">
+            <h2>Knowledge Graph</h2>
+            <div class="graph-container">
+                <div class="graph-filters">
+                    <h3>Filters</h3>
+                    <div class="filter-group">
+                        <label>Entity Types:</label>
+                        <div id="type-checkboxes"></div>
+                    </div>
+                    <div class="filter-group">
+                        <label>Min Mentions: <span id="min-mentions-value">0</span></label>
+                        <input type="range" id="min-mentions-slider" min="0" max="50" value="0">
+                    </div>
+                    <div class="filter-group">
+                        <label>Max Nodes: <span id="max-nodes-value">All</span></label>
+                        <input type="range" id="max-nodes-slider" min="0" max="1000000" value="0" step="100">
+                    </div>
+                    <button id="apply-filters" class="btn-apply">Apply Filters</button>
+                </div>
+                <div class="graph-frame-container">
+                    <div id="graph-canvas"></div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

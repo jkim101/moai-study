@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import webbrowser
 from pathlib import Path
 
 import typer
@@ -251,6 +252,25 @@ def ask(
             "Estimated Cost", f"${usage.estimated_cost_usd:.4f}"
         )
         console.print(usage_table)
+
+
+@app.command()
+def dashboard(
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind to"),
+    port: int = typer.Option(8000, "--port", help="Port to bind to"),
+    no_browser: bool = typer.Option(
+        False, "--no-browser", help="Do not open browser automatically"
+    ),
+) -> None:
+    """Start the KG Dashboard web server."""
+    import uvicorn
+
+    from claude_conversation_kg.dashboard.server import app as dashboard_app
+
+    if not no_browser:
+        webbrowser.open(f"http://{host}:{port}")
+
+    uvicorn.run(dashboard_app, host=host, port=port)
 
 
 @app.command()

@@ -50,11 +50,29 @@ class TestNaturalLanguageQuerier:
         result = NaturalLanguageQuerier._parse_cypher(raw)
         assert result == "MATCH (e:Entity) RETURN e.name"
 
-    def test_parse_cypher_fallback_plain_text(self) -> None:
-        """Falls back to full text when no code fence is present."""
+    def test_parse_cypher_fallback_raw_cypher_keyword(self) -> None:
+        """Returns raw text when it starts with a Cypher keyword (no fence)."""
         raw = "MATCH (e:Entity) RETURN e.name"
         result = NaturalLanguageQuerier._parse_cypher(raw)
         assert result == "MATCH (e:Entity) RETURN e.name"
+
+    def test_parse_cypher_raw_cypher_optional_match(self) -> None:
+        """Returns raw text when it starts with OPTIONAL MATCH."""
+        raw = "OPTIONAL MATCH (e:Entity) RETURN e.name"
+        result = NaturalLanguageQuerier._parse_cypher(raw)
+        assert result == "OPTIONAL MATCH (e:Entity) RETURN e.name"
+
+    def test_parse_cypher_korean_text_raises_query_error(self) -> None:
+        """Raises QueryError when response is non-Cypher text (e.g. Korean)."""
+        raw = "이 질문에 대한 Cypher 쿼리를 생성할 수 없습니다."
+        with pytest.raises(QueryError, match="Failed to extract a valid Cypher query"):
+            NaturalLanguageQuerier._parse_cypher(raw)
+
+    def test_parse_cypher_english_explanation_raises_query_error(self) -> None:
+        """Raises QueryError when response is a plain English explanation."""
+        raw = "I cannot generate a Cypher query for this question."
+        with pytest.raises(QueryError, match="Failed to extract a valid Cypher query"):
+            NaturalLanguageQuerier._parse_cypher(raw)
 
     def test_ask_returns_cypher_and_answer(self) -> None:
         """ask() returns generated Cypher and natural language summary."""

@@ -144,6 +144,119 @@ class QueryRunner:
             )
         return rows
 
+    def search_entities(self, query: str, limit: int = 20) -> list[dict]:
+        """Search entities by name (case-insensitive substring match).
+
+        Args:
+            query: Substring to search for in entity names.
+            limit: Maximum number of results to return.
+
+        Returns:
+            List of dicts with id, name, type, mention_count keys.
+        """
+        result = self._conn.execute(
+            "MATCH (e:Entity) "
+            "WHERE lower(e.name) CONTAINS lower($query) "
+            "RETURN e.id, e.name, e.type, e.mention_count "
+            "ORDER BY e.mention_count DESC "
+            "LIMIT $limit",
+            parameters={"query": query, "limit": limit},
+        )
+        rows: list[dict] = []
+        while result.has_next():
+            row = result.get_next()
+            rows.append(
+                {
+                    "id": row[0],
+                    "name": row[1],
+                    "type": row[2],
+                    "mention_count": row[3] or 0,
+                }
+            )
+        return rows
+
+    def get_entity_connections(self, entity_id: str) -> dict | None:
+        """Get entity details and all its connections.
+
+        Args:
+            entity_id: The unique identifier of the entity.
+
+        Returns:
+            Dict with entity info and connections list, or None if not found.
+        """
+        # Get entity info
+        result = self._conn.execute(
+            "MATCH (e:Entity) WHERE e.id = $id "
+            "RETURN e.id, e.name, e.type, e.mention_count, e.first_seen",
+            parameters={"id": entity_id},
+        )
+        if not result.has_next():
+            return None
+
+        row = result.get_next()
+        entity = {
+            "id": row[0],
+            "name": row[1],
+            "type": row[2],
+            "mention_count": row[3] or 0,
+            "first_seen": str(row[4]) if row[4] else None,
+        }
+
+        # Get connections (both outgoing and incoming)
+        connections: list[dict] = []
+        for rel_type in RelationshipType:
+            try:
+                # Outgoing relationships
+                rels = self._conn.execute(
+                    f"MATCH (a:Entity)-[r:{rel_type.value}]->(b:Entity) "
+                    f"WHERE a.id = $id "
+                    f"RETURN b.id, b.name, b.type, b.mention_count",
+                    parameters={"id": entity_id},
+                )
+                while rels.has_next():
+                    r = rels.get_next()
+                    connections.append(
+                        {
+                            "direction": "outgoing",
+                            "relationship": rel_type.value,
+                            "entity": {
+                                "id": r[0],
+                                "name": r[1],
+                                "type": r[2],
+                                "mention_count": r[3] or 0,
+                            },
+                        }
+                    )
+            except RuntimeError:
+                pass
+
+            try:
+                # Incoming relationships
+                rels = self._conn.execute(
+                    f"MATCH (a:Entity)-[r:{rel_type.value}]->(b:Entity) "
+                    f"WHERE b.id = $id "
+                    f"RETURN a.id, a.name, a.type, a.mention_count",
+                    parameters={"id": entity_id},
+                )
+                while rels.has_next():
+                    r = rels.get_next()
+                    connections.append(
+                        {
+                            "direction": "incoming",
+                            "relationship": rel_type.value,
+                            "entity": {
+                                "id": r[0],
+                                "name": r[1],
+                                "type": r[2],
+                                "mention_count": r[3] or 0,
+                            },
+                        }
+                    )
+            except RuntimeError:
+                pass
+
+        return {"entity": entity, "connections": connections}
+
     def execute(self, cypher: str) -> list[dict]:
         """Execute an arbitrary Cypher query and return results as dicts."""
         try:

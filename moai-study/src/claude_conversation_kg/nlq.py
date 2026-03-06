@@ -34,8 +34,10 @@ NLQ_SCHEMA_PROMPT = (
     "Relationship tables (Entity -> Session):\n"
     "- MENTIONED_IN\n\n"
     "Rules:\n"
-    "- Generate ONLY a single Cypher query. No explanation.\n"
-    "- Wrap the query in a ```cypher code fence.\n"
+    "- Generate ONLY a single Cypher query. No explanation, no commentary.\n"
+    "- ALWAYS wrap the query in a ```cypher code fence.\n"
+    "- Even if the question is in a non-English language, respond ONLY "
+    "with a Cypher query inside a code fence.\n"
     "- Kuzu does not support the type() function on relationships. "
     "Query each relationship type separately if needed.\n"
     "- Use LIMIT to keep results manageable (default 20).\n"
@@ -159,13 +161,24 @@ class NaturalLanguageQuerier:
 
     @staticmethod
     def _parse_cypher(raw_text: str) -> str:
-        """Extract a Cypher query from Claude's response text."""
+        """Extract a Cypher query from Claude's response text.
+
+        Raises:
+            QueryError: When no valid Cypher query can be extracted.
+        """
         # Try to extract from ```cypher ... ``` fence first.
         match = re.search(r"```(?:cypher)?\s*([\s\S]*?)```", raw_text)
         if match:
             return match.group(1).strip()
-        # Fallback: use the entire response stripped.
-        return raw_text.strip()
+        # Fallback: accept raw text only if it looks like Cypher.
+        stripped = raw_text.strip()
+        cypher_keywords = ("MATCH", "RETURN", "CREATE", "WITH", "OPTIONAL", "CALL")
+        if stripped.upper().startswith(cypher_keywords):
+            return stripped
+        raise QueryError(
+            "Failed to extract a valid Cypher query from AI response. "
+            "Please try rephrasing your question."
+        )
 
     @staticmethod
     def _extract_usage(response: object) -> UsageStats:
@@ -177,12 +190,7 @@ class NaturalLanguageQuerier:
             api_calls=1,
             input_tokens=getattr(usage, "input_tokens", 0),
             output_tokens=getattr(usage, "output_tokens", 0),
-            cache_creation_input_tokens=getattr(
-                usage, "cache_creation_input_tokens", 0
-            )
+            cache_creation_input_tokens=getattr(usage, "cache_creation_input_tokens", 0)
             or 0,
-            cache_read_input_tokens=getattr(
-                usage, "cache_read_input_tokens", 0
-            )
-            or 0,
+            cache_read_input_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
         )
