@@ -58,9 +58,11 @@ class IngestionPipeline:
         self,
         store: GraphStore,
         processor: BatchProcessor,
+        batch_size: int = 10,
     ) -> None:
         self._store = store
         self._processor = processor
+        self._batch_size = batch_size
 
     def ingest(self, path: Path) -> dict:
         """Ingest JSONL files from the given path.
@@ -111,7 +113,9 @@ class IngestionPipeline:
                     started_at=ts_start, ended_at=ts_end,
                 )
 
-                result, usage = self._processor.process_session(session)
+                result, usage = self._processor.process_session(
+                    session, batch_size=self._batch_size,
+                )
                 total_usage = total_usage + usage
 
                 for entity in result.entities:

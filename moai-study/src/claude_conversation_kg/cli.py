@@ -57,7 +57,9 @@ def _build_pipeline() -> IngestionPipeline:
     store = GraphStore(conn.conn)
     client = ExtractionClient(api_key=settings.anthropic_api_key)
     processor = BatchProcessor(client=client)
-    return IngestionPipeline(store=store, processor=processor)
+    return IngestionPipeline(
+        store=store, processor=processor, batch_size=settings.batch_size,
+    )
 
 
 def _build_query_runner() -> QueryRunner:

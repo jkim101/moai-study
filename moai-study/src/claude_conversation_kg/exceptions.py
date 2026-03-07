@@ -15,6 +15,10 @@ class ExtractionError(KGError):
     """Error during entity/relationship extraction."""
 
 
+class PromptTooLargeError(ExtractionError):
+    """Prompt exceeds the model's token limit."""
+
+
 class AuthenticationError(ExtractionError):
     """Authentication failure with the Claude API."""
 

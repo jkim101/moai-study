@@ -511,6 +511,12 @@ pages: "1-20"
 
 Large PDFs (>10 pages) return a lightweight reference when @-mentioned. Always specify page ranges for PDFs over 50 pages to avoid token waste.
 
+### Context Management
+
+- Do NOT read entire files with `cat`. Use `head`, `tail`, `grep`, or specify line ranges to read only the relevant sections.
+- Work on only one agent/module at a time. Complete and save before moving to the next.
+- Avoid dumping full error logs or large outputs. Extract and provide only the relevant portion.
+
 ---
 
 Version: 13.2.0 (Usage Data Driven Improvements)

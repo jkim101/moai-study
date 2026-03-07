@@ -8,7 +8,11 @@ import time
 
 import anthropic
 
-from claude_conversation_kg.exceptions import AuthenticationError, ExtractionError
+from claude_conversation_kg.exceptions import (
+    AuthenticationError,
+    ExtractionError,
+    PromptTooLargeError,
+)
 from claude_conversation_kg.extractor.models import (
     Entity,
     EntityType,
@@ -30,6 +34,15 @@ class ExtractionClient:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
 
+    # Rough chars-per-token ratio; conservative to avoid 400 errors.
+    _CHARS_PER_TOKEN = 4
+    _MAX_PROMPT_TOKENS = 180_000
+
+    @classmethod
+    def estimate_tokens(cls, text: str) -> int:
+        """Estimate token count from character length."""
+        return len(text) // cls._CHARS_PER_TOKEN
+
     def extract(
         self,
         messages: list[ConversationMessage],
@@ -39,9 +52,17 @@ class ExtractionClient:
 
         Implements exponential backoff for rate limit errors.
         Halts immediately on authentication errors.
+        Raises PromptTooLargeError if estimated tokens exceed the limit.
         Returns a tuple of (ExtractionResult, UsageStats).
         """
         user_prompt = build_user_prompt(messages)
+        estimated = self.estimate_tokens(SYSTEM_PROMPT + user_prompt)
+        if estimated > self._MAX_PROMPT_TOKENS:
+            raise PromptTooLargeError(
+                f"Estimated {estimated:,} tokens exceeds "
+                f"{self._MAX_PROMPT_TOKENS:,} limit "
+                f"({len(messages)} messages)"
+            )
 
         for attempt in range(max_retries + 1):
             try:
@@ -64,6 +85,11 @@ class ExtractionClient:
             except anthropic.AuthenticationError as e:
                 raise AuthenticationError(
                     f"Invalid API key. Please check your ANTHROPIC_API_KEY: {e}"
+                ) from e
+
+            except anthropic.BadRequestError as e:
+                raise ExtractionError(
+                    f"Bad request (not retryable): {e}"
                 ) from e
 
             except anthropic.RateLimitError:
